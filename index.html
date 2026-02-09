@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -32,6 +32,7 @@
         .history-item { padding: 12px 20px; border-bottom: 1px solid #eee; position: relative; }
         .is-mision { border-left: 5px solid var(--accent); background: #fffbf0; } 
         .tag-mision { background: var(--accent); color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.75em; font-weight: bold; margin-left: 5px; }
+        .tag-sucursal { background: #6f42c1; color: white; padding: 2px 6px; border-radius: 4px; font-size: 0.7em; font-weight: bold; margin-left: 5px; }
         
         .h-row { display: flex; justify-content: space-between; align-items: start; }
         .h-model { font-weight: bold; color: #333; font-size: 0.95em; }
@@ -69,6 +70,10 @@
         
         .history-secure-container { display: none; }
         body.is-admin .history-secure-container { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+
+        /* ✅ NUEVO: Estilos para el selector de sucursal */
+        .sucursal-selector { display: none; }
+        .sucursal-selector.visible { display: block; }
 
     </style>
 </head>
@@ -125,6 +130,15 @@
                 </label>
             </div>
             
+            <!-- ✅ NUEVO: Selector de sucursal -->
+            <div class="form-row sucursal-selector" id="sucursal-container">
+                <select id="manual-sucursal" style="flex: 1; border-color: #6f42c1; background: #f8f0ff;">
+                    <option value="Llojeta">Llojeta</option>
+                    <option value="Bush">Bush</option>
+                    <option value="Satelite">Satelite</option>
+                </select>
+            </div>
+            
             <div class="form-row">
                 <input type="text" id="manual-fallecido" placeholder="Nombre Fallecido" style="display:none; border-color: #ff9800; width: 100%;">
             </div>
@@ -176,8 +190,11 @@
     const app = initializeApp(firebaseConfig);
     const db = getFirestore(app);
 
+    // ✅ NUEVO: Control del selector de sucursal
     document.getElementById('check-santa-maria').addEventListener('change', function() {
-        document.getElementById('manual-fallecido').style.display = this.checked ? 'block' : 'none';
+        const isChecked = this.checked;
+        document.getElementById('manual-fallecido').style.display = isChecked ? 'block' : 'none';
+        document.getElementById('sucursal-container').classList.toggle('visible', isChecked);
     });
 
     window.toggleAdminPanel = function() {
@@ -242,7 +259,7 @@
         if(currentVal) selectModel.value = currentVal;
     });
 
-    // HISTORIAL
+    // ✅ CORREGIDO: HISTORIAL CON SUCURSAL
     const qHist = query(collection(db, "historial"), orderBy("fecha", "desc"), limit(30));
     onSnapshot(qHist, (snapshot) => {
         const list = document.getElementById('history-list'); list.innerHTML = "";
@@ -256,6 +273,11 @@
             const esMision = data.es_mision === true;
             const claseCss = esMision ? 'history-item is-mision' : 'history-item';
             const etiqueta = esMision ? '<span class="tag-mision">SANTA MARIA</span>' : '';
+            
+            // ✅ NUEVO: Mostrar sucursal
+            const sucursal = data.sucursal || "Domicilio";
+            const tagSucursal = esMision ? `<span class="tag-sucursal">${sucursal}</span>` : '';
+            
             const fallecidoInfo = (esMision && data.nombre_fallecido) ? `<br><small style="color:#e65100">Fallecido: ${data.nombre_fallecido}</small>` : '';
 
             let infoDescuento = "";
@@ -269,7 +291,7 @@
             const li = document.createElement('li'); li.className = claseCss;
             li.innerHTML = `
                 <div class="h-row">
-                    <span class="h-model">${data.nombre_marco || 'Trabajo'} ${etiqueta}</span>
+                    <span class="h-model">${data.nombre_marco || 'Trabajo'} ${etiqueta} ${tagSucursal}</span>
                     <button class="btn-del-hist" onclick="borrarHistorial('${id}')" title="Borrar y restaurar stock">✕</button>
                 </div>
                 <div class="h-meta">
@@ -293,6 +315,7 @@
         }
     }
 
+    // ✅ CORREGIDO: Registro manual con sucursal
     async function registrarManual() {
         const selectModel = document.getElementById('manual-model');
         const modelId = selectModel.value; 
@@ -302,6 +325,9 @@
         const medida = document.getElementById('manual-size').value;
         const checkSantaMaria = document.getElementById('check-santa-maria').checked;
         const fallecido = document.getElementById('manual-fallecido').value;
+        
+        // ✅ NUEVO: Obtener sucursal seleccionada
+        const sucursal = checkSantaMaria ? document.getElementById('manual-sucursal').value : "Domicilio";
 
         if(!modelId) { alert("¡Debes seleccionar un Marco del inventario!"); return; }
         if(!medida) { alert("Selecciona el tamaño."); return; }
@@ -312,8 +338,9 @@
             await addDoc(collection(db, "historial"), {
                 nombre_marco: nombreCompuesto, 
                 medida_detectada: medida, 
-                es_mision: checkSantaMaria,  // Mantiene compatibilidad
+                es_mision: checkSantaMaria,
                 nombre_fallecido: checkSantaMaria ? fallecido : "", 
+                sucursal: sucursal,  // ✅ GUARDANDO SUCURSAL
                 fecha: new Date(), 
                 archivo_original: "Registro Manual",
                 id_producto_descontado: modelId, 
@@ -323,12 +350,14 @@
             const productRef = doc(db, "productos", modelId);
             await updateDoc(productRef, { quantity: increment(-1) });
 
+            // Limpiar formulario
             selectModel.value = "";
             document.getElementById('manual-name').value = ""; 
             document.getElementById('manual-size').value = "";
             document.getElementById('manual-fallecido').value = ""; 
             document.getElementById('check-santa-maria').checked = false;
             document.getElementById('manual-fallecido').style.display = 'none';
+            document.getElementById('sucursal-container').classList.remove('visible');
 
         } catch (e) {
             console.error(e);
@@ -411,6 +440,7 @@
         return { nombre: texto, precio: 0 };
     }
 
+    // ✅ CORREGIDO: Excel con columna de sucursal
     async function descargarHistorialCompleto() {
         const btn = document.getElementById('btn-descargar'); btn.disabled = true; btn.innerText = "⏳ Generando...";
         try {
@@ -447,7 +477,12 @@
                 };
 
                 if (d.es_mision === true) {
-                    const filaSantaMaria = { ...filaBase, "Nombre Fallecido": d.nombre_fallecido || "", "Precio (Bs)": estandarEncontrado.precio };
+                    const filaSantaMaria = { 
+                        ...filaBase, 
+                        "Nombre Fallecido": d.nombre_fallecido || "", 
+                        "Sucursal": d.sucursal || "Domicilio",  // ✅ AGREGADO
+                        "Precio (Bs)": estandarEncontrado.precio 
+                    };
                     filasSantaMaria.push(filaSantaMaria);
                 } else {
                     filasGeneral.push(filaBase);
@@ -461,7 +496,7 @@
             if (filasSantaMaria.length > 0) {
                 const wsMis = XLSX.utils.json_to_sheet(filasSantaMaria);
                 const totalDinero = filasSantaMaria.reduce((sum, item) => sum + (item["Precio (Bs)"] || 0), 0);
-                XLSX.utils.sheet_add_aoa(wsMis, [["", "", "", "", "TOTAL ACUMULADO:", totalDinero]], {origin: -1});
+                XLSX.utils.sheet_add_aoa(wsMis, [["", "", "", "", "", "TOTAL ACUMULADO:", totalDinero]], {origin: -1});
                 XLSX.utils.book_append_sheet(wb, wsMis, "Reporte Santa Maria");
             } else { XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([{Info:"Sin Santa Maria"}]), "Reporte Santa Maria"); }
 

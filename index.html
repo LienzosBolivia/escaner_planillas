@@ -154,8 +154,14 @@
     <h2>1. Modelo YOLO (opcional, refuerza la ubicación de campos)</h2>
     <div class="hint" style="margin-bottom:10px;">Este modelo fue entrenado para ubicar directamente, por posición visual, seis zonas de la planilla (fallecido, fecha, fecha_de_ingreso, modelo, tamaño, teléfono). Es un archivo <code>.onnx</code> — si tu archivo es <code>.pt</code>, primero hay que convertirlo (ver la explicación en el chat). Cargar el modelo es opcional: si no lo cargas, el extractor funciona igual que antes, solo con OCR + heurísticas. Cuando SÍ lo cargas, sus cajas se usan dos veces: primero como ancla para buscar el valor entre las palabras que ya leyó el OCR, y si eso no alcanza, como guía para recortar esa zona exacta y volver a leerla con una pasada de OCR dedicada solo a esa celda — así una caja bien ubicada por YOLO puede rescatar un campo aunque el OCR de la hoja completa nunca lo haya tokenizado.</div>
     <input type="file" id="yoloModelInput" accept=".onnx">
+    <div class="hint" style="margin:10px 0 4px;">Autodetección: si subís el archivo <code>.onnx</code> a la MISMA carpeta del repositorio donde está este <code>index.html</code>, con alguno de estos nombres — <code>yolov.onnx</code>, <code>yolo.onnx</code>, <code>modelo.onnx</code>, <code>model.onnx</code> o <code>best.onnx</code> — se carga solo al abrir la página, sin tocar nada más. (Solo funciona si la página se sirve por http(s), p. ej. GitHub Pages; abrir el HTML con doble clic desde el explorador de archivos no lo permite — en ese caso usá el selector de archivo o la URL de abajo). Si tu archivo tiene otro nombre, también podés pegar su URL directa (por ejemplo el enlace "raw" de GitHub) acá abajo:</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <input type="text" id="yoloUrlInput" placeholder="https://raw.githubusercontent.com/usuario/repo/main/modelo.onnx" style="flex:1;min-width:240px;padding:7px 10px;border:1px solid var(--line);border-radius:7px;font-size:.85rem;">
+      <button class="ghost" id="yoloUrlBtn" type="button">Cargar desde URL</button>
+    </div>
     <div id="yoloStatus" class="hint" style="margin-top:6px;">Ningún modelo cargado — se usará solo el método OCR/heurístico.</div>
   </section>
+
 
   <section class="card">
     <h2>2. Cargar planillas</h2>
@@ -1346,6 +1352,55 @@ async function targetedCropRescue(merged, applicableCritical, sourceCanvas, comb
         padX0:0.05, padX1:0.03, padY:0.7,
       });
     }
+    // ANCLA POR CAMPO HERMANO — Tamaño y Modelo de Marco son SIEMPRE filas
+    // consecutivas en la sección DETALLES, en las tres plantillas conocidas
+    // (Modelo de Marco justo debajo de Tamaño). Si uno de los dos ya tiene
+    // valor Y caja real en ESTA hoja, se usa esa caja como ancla directa
+    // para recortar la fila del otro — sin depender de que se haya
+    // reconocido la plantilla ni de que YOLO esté cargado. Es más preciso
+    // que el rango estimado por plantilla porque usa la posición REAL del
+    // vecino en esta foto en particular, no un promedio de toda la hoja.
+    const siblingKey = def.key==='modelo_marco' ? 'tamano' : (def.key==='tamano' ? 'modelo_marco' : null);
+    const sib = siblingKey ? merged[siblingKey] : null;
+    const sibBox = sib && sib.value ? (sib.valueBox || sib.labelBox) : null;
+    if(sibBox){
+      // Alto de fila: si además está disponible el campo que queda al OTRO
+      // lado del hueco (Modelo de Fondo, justo debajo de Modelo de Marco),
+      // la distancia entre Tamaño y Modelo de Fondo dividida en dos da el
+      // alto EXACTO de la fila que falta en esta hoja en particular — más
+      // preciso que cualquier estimación genérica, porque no depende de
+      // adivinar cuánto "aire"/padding tiene cada celda.
+      let rowH = null;
+      if(def.key==='modelo_marco'){
+        const fondo = merged['modelo_fondo'];
+        const fondoBox = fondo && fondo.value ? (fondo.valueBox || fondo.labelBox) : null;
+        if(fondoBox){
+          const yTamano = (sibBox.y0+sibBox.y1)/2, yFondo = (fondoBox.y0+fondoBox.y1)/2;
+          if(yFondo > yTamano) rowH = (yFondo-yTamano)/2;
+        }
+      }
+      if(!rowH) rowH = (rowHeightHint && rowHeightHint>0) ? rowHeightHint : Math.max(1, sibBox.y1-sibBox.y0)*1.6;
+
+      // Se deja un pequeño margen explícito pegado al borde del vecino (en
+      // vez de confiar en el padding genérico de attemptCropForField, que
+      // al ser una fracción de la caja completa podía volver a meterse
+      // dentro del texto del vecino y traer de nuevo "16X22" mezclado con
+      // el modelo) y se usa un padding vertical mínimo en el recorte.
+      const gap = rowH*0.12;
+      const adjBox = (def.key==='modelo_marco')
+        ? { x0:sibBox.x0, y0:sibBox.y1+gap, x1:pageWidth, y1:sibBox.y1+gap+rowH*1.05 }
+        : { x0:sibBox.x0, y0:sibBox.y0-gap-rowH*1.05, x1:pageWidth, y1:sibBox.y0-gap };
+      candidates.push({
+        label: 'ancla-hermano',
+        box: adjBox,
+        padX0:0.05, padX1:0.04, padY:0.10,
+      });
+      if(!wideBand){
+        wideBand = (def.key==='modelo_marco')
+          ? { x0:adjBox.x0, y0:sibBox.y1-rowH*0.1, y1:adjBox.y1+rowH*0.4 }
+          : { x0:adjBox.x0, y0:adjBox.y0-rowH*0.4, y1:sibBox.y0+rowH*0.1 };
+      }
+    }
     if(yoloByKey[def.key]){
       // El modelo YOLO ya ubicó esta zona por posición visual (más preciso
       // que estimarla solo por los vecinos de la plantilla), aunque el OCR
@@ -1570,6 +1625,76 @@ function finalizeCriticalFields(found, lines){
   }
 
   return { label: template.label, applicableCritical };
+}
+
+// RESCATE DIRECTO POR CAMPO HERMANO (solo texto, sin recorte de imagen) —
+// Tamaño y Modelo de Marco son SIEMPRE filas consecutivas en la sección
+// DETALLES (el modelo va justo debajo del tamaño) en las tres plantillas
+// conocidas. Esta regla es más simple y directa que el rescate por
+// plantilla: no necesita que se haya identificado ninguna plantilla, ni
+// que el orden completo de campos calce — solo necesita que UNO de los
+// dos ya tenga valor y caja real en esta hoja. Se prueba ANTES del
+// recorte+re-OCR (mucho más barato: reutiliza palabras que el OCR de
+// página completa ya leyó, solo que no fueron clasificadas en una fila
+// propia) y, si no encuentra nada ahí, igual queda la caja estimada
+// disponible para el candidato 'ancla-hermano' del recorte dirigido.
+function siblingAdjacencyTextRescue(merged, lines){
+  if(!lines || !lines.length) return [];
+  const notes = [];
+  ['modelo_marco','tamano'].forEach(missingKey=>{
+    const f = merged[missingKey];
+    if(f && f.value) return; // ya tiene valor, no hay nada que rescatar
+    const siblingKey = missingKey==='modelo_marco' ? 'tamano' : 'modelo_marco';
+    const sib = merged[siblingKey];
+    if(!sib || !sib.value) return; // el vecino tampoco está resuelto: no hay ancla
+    const sibBox = sib.valueBox || sib.labelBox;
+    if(!sibBox) return;
+
+    // Palabras ya reclamadas por CUALQUIER otro campo ya resuelto: se
+    // excluyen para no leer dos veces el mismo texto (idéntico criterio
+    // que positionalRescue).
+    const claimedBoxes = [];
+    Object.entries(merged).forEach(([k,val])=>{
+      if(k===missingKey || !val) return;
+      if(val.labelBox) claimedBoxes.push(val.labelBox);
+      if(val.valueBox) claimedBoxes.push(val.valueBox);
+    });
+    function freeWords(line){
+      const ws = claimedBoxes.length ? line.words.filter(w=>{
+        const wx=(w.bbox.x0+w.bbox.x1)/2, wy=(w.bbox.y0+w.bbox.y1)/2;
+        return !claimedBoxes.some(b=> wx>=b.x0-2 && wx<=b.x1+2 && wy>=b.y0-2 && wy<=b.y1+2);
+      }) : line.words;
+      // misma columna que el valor del vecino (con algo de margen a la
+      // izquierda, por si el valor de esta fila arranca un poco antes)
+      return ws.filter(w=> w.bbox.x1 >= sibBox.x0-15);
+    }
+
+    const sibY = (sibBox.y0+sibBox.y1)/2;
+    const baseIdx = nearestLineIndex(lines, sibY);
+    const dir = missingKey==='modelo_marco' ? 1 : -1; // modelo: mirar hacia abajo · tamaño: mirar hacia arriba
+
+    for(let step=1; step<=2; step++){
+      const line = lines[baseIdx + dir*step];
+      if(!line) continue;
+      const words = freeWords(line);
+      if(!words.length) continue;
+      const result = validateWordsForField(missingKey, words);
+      if(result){
+        merged[missingKey] = {
+          value: result.code,
+          labelBox: null,
+          valueBox: unionBox(result.words.map(w=>w.bbox)),
+          method: 'ancla-hermano',
+          searchBand: null,
+          flag: null,
+        };
+        const label = (FIELD_DEFS.find(d=>d.key===missingKey)||{}).label || missingKey;
+        notes.push(`${label}: resuelto por ancla del campo hermano (${siblingKey==='tamano'?'debajo de Tamaño':'arriba de Modelo de Marco'}) → "${result.code}"`);
+        return;
+      }
+    }
+  });
+  return notes;
 }
 
 function extractFields(lines, allWords, tolBase, tolSteps, pageWidth){
@@ -1854,12 +1979,16 @@ if(typeof ort !== 'undefined'){
   ort.env.wasm.numThreads = 1;
 }
 
-async function loadYoloModel(file){
+// Lógica común para inicializar el modelo YOLO, sin importar si vino de un
+// <input type="file"> (ArrayBuffer) o de una URL (string, que
+// ort.InferenceSession.create sabe descargar sola). `source` es lo que se
+// le pasa directo a onnxruntime-web, y `label` es solo para el mensaje de
+// estado.
+async function loadYoloModelFromSource(source, label){
   const statusEl = document.getElementById('yoloStatus');
   try{
-    statusEl.textContent = `Cargando modelo ${file.name}...`;
-    const buf = await file.arrayBuffer();
-    yoloSession = await ort.InferenceSession.create(buf, { executionProviders:['wasm'] });
+    statusEl.textContent = `Cargando modelo ${label}...`;
+    yoloSession = await ort.InferenceSession.create(source, { executionProviders:['wasm'] });
 
     // Prueba inmediata con un tensor de ceros, SOLO para confirmar que el
     // modelo corre en este entorno y ver la forma real de la salida, sin
@@ -1871,17 +2000,64 @@ async function loadYoloModel(file){
     const outName = yoloSession.outputNames[0];
     yoloOutputInfo = testOut[outName].dims;
 
-    statusEl.textContent = `Modelo cargado: ${file.name}. Entrada "${inputName}" 1x3x${YOLO_INPUT_SIZE}x${YOLO_INPUT_SIZE}. Salida "${outName}" con forma [${yoloOutputInfo.join(', ')}].`;
+    statusEl.textContent = `Modelo cargado: ${label}. Entrada "${inputName}" 1x3x${YOLO_INPUT_SIZE}x${YOLO_INPUT_SIZE}. Salida "${outName}" con forma [${yoloOutputInfo.join(', ')}].`;
     if(yoloOutputInfo.length !== 3 || (yoloOutputInfo[1]-4) !== YOLO_CLASS_NAMES.length){
       statusEl.textContent += ` ⚠️ Se esperaba [1, ${4+YOLO_CLASS_NAMES.length}, N] (4 + ${YOLO_CLASS_NAMES.length} clases) — esta forma es distinta, revisa cómo se exportó.`;
     }
+    return true;
   }catch(err){
     console.error(err);
     yoloSession = null;
     statusEl.textContent = `No se pudo cargar/ejecutar el modelo (${err.message}). Se seguirá usando solo OCR/heurísticas.`;
+    return false;
   }
-
 }
+
+async function loadYoloModel(file){
+  const buf = await file.arrayBuffer();
+  await loadYoloModelFromSource(buf, file.name);
+}
+
+// Carga desde una URL pública (p.ej. el enlace "raw" de GitHub, o una ruta
+// relativa dentro del mismo repositorio). ort.InferenceSession.create
+// acepta la URL/ruta tal cual y la descarga sola, sin que haga falta un
+// fetch() manual.
+async function loadYoloModelFromUrl(url){
+  if(!url) return false;
+  const label = url.split('/').pop() || url;
+  return await loadYoloModelFromSource(url, label);
+}
+
+// AUTODETECCIÓN — al abrir la página, se prueba automáticamente a cargar
+// el modelo desde ESTOS nombres de archivo, buscados como ruta RELATIVA
+// (es decir: en la misma carpeta donde está este index.html). Esto es lo
+// que permite simplemente subir el .onnx al lado del HTML en el
+// repositorio (GitHub Pages, o cualquier hosting) y que se cargue solo,
+// sin tocar nada ni pegar ninguna URL.
+//   - Si tu archivo se llama distinto, agregalo a esta lista (podés
+//     agregar varios nombres — se prueban en orden, y se usa el primero
+//     que exista).
+//   - Esto SOLO funciona si la página se sirve por http(s) (GitHub Pages,
+//     un servidor local, etc.) — abrir el .html haciendo doble clic desde
+//     el explorador de archivos (protocolo file://) no permite esta
+//     descarga en la mayoría de los navegadores; en ese caso hay que usar
+//     el botón "Cargar desde URL" o el selector de archivo de arriba.
+const YOLO_AUTO_FILENAMES = ['yolov.onnx', 'yolo.onnx', 'modelo.onnx', 'model.onnx', 'best.onnx'];
+
+async function autoDetectYoloModel(){
+  const statusEl = document.getElementById('yoloStatus');
+  for(const name of YOLO_AUTO_FILENAMES){
+    try{
+      const res = await fetch(name, { method:'HEAD', cache:'no-store' });
+      if(!res.ok) continue;
+    }catch(e){ continue; } // no existe con ese nombre (o no se puede leer por file://): se prueba el siguiente
+    const ok = await loadYoloModelFromUrl(name);
+    if(ok) return; // encontrado y cargado correctamente
+    // si existe el archivo pero no se pudo cargar como modelo válido, se sigue probando el siguiente nombre
+  }
+  statusEl.textContent = `Ningún modelo encontrado junto al HTML (se probó: ${YOLO_AUTO_FILENAMES.join(', ')}). Podés subirlo a mano abajo, o pegar su URL.`;
+}
+autoDetectYoloModel();
 
 // Redimensiona manteniendo proporción y rellena con gris (letterbox),
 // igual que hace Ultralytics al preparar la entrada del modelo.
@@ -2183,6 +2359,12 @@ async function ocrImage(file, tolBase, tolSteps, onAttempt){
   const combinedLines = buildLines(allWordsUnion);
   const { label:templateName, applicableCritical } = finalizeCriticalFields(merged, combinedLines);
 
+  // RESCATE POR CAMPO HERMANO (Tamaño ↔ Modelo de Marco) — se prueba antes
+  // del recorte dirigido porque es prácticamente gratis: solo reutiliza
+  // palabras que el OCR de página completa ya leyó pero que ninguna otra
+  // etapa había logrado clasificar en la fila correcta.
+  const siblingNotes = siblingAdjacencyTextRescue(merged, combinedLines);
+
   // ÚLTIMO RECURSO — RECORTE DIRIGIDO CON RE-OCR. Todo lo anterior (barrido
   // normal, rescate de críticos, YOLO, rescate posicional) SOLO busca entre
   // las palabras que ya salieron de las 4 pasadas de OCR de página
@@ -2192,13 +2374,15 @@ async function ocrImage(file, tolBase, tolSteps, onAttempt){
   // obligatorios que siguen fallando), ningún truco geométrico puede
   // rescatar un valor que nunca se leyó. Aquí, para los campos críticos que
   // SIGUEN sin valor, se recorta la zona donde debería estar el valor
-  // (a partir de la etiqueta si se la ubicó, o de la banda de fila
-  // estimada por la plantilla si no), se agranda esa imagen y se le corre
-  // una pasada de OCR nueva y específica para ese campo (whitelist de
-  // caracteres + modo de una sola línea) — igual que haría una persona
-  // haciendo zoom a esa celda antes de transcribirla a mano.
+  // (a partir de la etiqueta si se la ubicó, del campo hermano si es
+  // Tamaño/Modelo de Marco, de YOLO, o de la banda de fila estimada por la
+  // plantilla si no), se agranda esa imagen y se le corre una pasada de
+  // OCR nueva y específica para ese campo (whitelist de caracteres + modo
+  // de una sola línea) — igual que haría una persona haciendo zoom a esa
+  // celda antes de transcribirla a mano.
   const cropDebugNotes = await targetedCropRescue(merged, applicableCritical, displayCanvas, combinedLines, columnPercent, width, yoloDetections, yoloWeakDetections);
-  const cropDebugText = cropDebugNotes.length ? `Recorte dirigido → ${cropDebugNotes.join(' · ')}` : '';
+  const allDebugNotes = [...siblingNotes, ...cropDebugNotes];
+  const cropDebugText = allDebugNotes.length ? `Recorte dirigido → ${allDebugNotes.join(' · ')}` : '';
 
   const foundCount = FIELD_DEFS.filter(d=> merged[d.key].value).length;
   const psmName = usedModes.length ? usedModes.join(' + ') : 'ninguno';
@@ -2282,6 +2466,8 @@ async function renderResult(item, index){
       badgeClass = 'search'; badgeText = 'búsqueda vertical';
     } else if(f.method==='posicion-plantilla'){
       badgeClass = 'search'; badgeText = 'por posición (sin etiqueta legible)';
+    } else if(f.method==='ancla-hermano'){
+      badgeClass = 'search'; badgeText = def.key==='tamano' ? 'por posición (arriba de Modelo de Marco)' : 'por posición (debajo de Tamaño)';
     } else if(f.method==='recorte-dirigido'){
       badgeClass = 'search'; badgeText = 'recorte ampliado + re-OCR dirigido';
     } else if(f.method && f.method.startsWith('yolo')){
@@ -2408,6 +2594,10 @@ fileInput.addEventListener('change', e=> handleFiles(e.target.files));
 
 document.getElementById('yoloModelInput').addEventListener('change', (e)=>{
   if(e.target.files && e.target.files[0]) loadYoloModel(e.target.files[0]);
+});
+document.getElementById('yoloUrlBtn').addEventListener('click', ()=>{
+  const url = document.getElementById('yoloUrlInput').value.trim();
+  if(url) loadYoloModelFromUrl(url);
 });
 
 function handleFiles(fileListObj){

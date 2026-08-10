@@ -13,12 +13,20 @@
         
         <input type="file" id="archivo" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
         
-        <select id="comando" class="w-full mb-6 p-3 bg-gray-700 rounded font-semibold text-white">
+        <select id="comando" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
             <option value="solo_encuadre">🎯 Solo Encuadre</option>
             <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
             <option value="solo_recortar">✂️ Solo Recortar Fondo</option>
             <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
         </select>
+        
+        <div class="mb-6 bg-gray-700 p-3 rounded">
+            <label class="block text-sm font-bold text-gray-300 mb-2">
+                Fidelidad al rostro original: <span id="valorFidelidad" class="text-blue-400">0.7 (Recomendado)</span>
+            </label>
+            <input type="range" id="fidelidadIA" min="0.1" max="1.0" step="0.1" value="0.7" class="w-full cursor-pointer">
+            <p class="text-xs text-gray-400 mt-1">0.1 = IA inventa mucho | 1.0 = IA no cambia rasgos (Mantiene color de ojos)</p>
+        </div>
 
         <button id="btnEnviar" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors">
             Enviar a Kaggle
@@ -28,12 +36,12 @@
         <img id="resultadoImg" class="mt-6 w-full rounded-lg shadow-lg hidden" src="" alt="Resultado">
     </div>
 
-    <!-- Solo importamos Firestore (Gratis y sin tarjeta) -->
+    <!-- Scripts de Firebase y Lógica -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // ⚠️ PEGA AQUÍ TU CONFIGURACIÓN DE FIREBASE (Firestore)
+        // Configuración de Firebase
         const firebaseConfig = {
             apiKey: "AIzaSyDP1vPBXFQkvzx1YIbTCziOzXDRxQ6a_kM",
             authDomain: "botartes.firebaseapp.com",
@@ -45,15 +53,26 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // ⚠️ PEGA AQUÍ TU LLAVE DE IMGBB
+        // Llave de ImgBB
         const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0";
 
+        // Captura de elementos del HTML
         const btnEnviar = document.getElementById("btnEnviar");
         const inputArchivo = document.getElementById("archivo");
         const selectComando = document.getElementById("comando");
         const txtEstado = document.getElementById("estado");
         const imgResultado = document.getElementById("resultadoImg");
+        const sliderFidelidad = document.getElementById("fidelidadIA");
+        const textoFidelidad = document.getElementById("valorFidelidad");
 
+        // Lógica visual: Cambiar el numerito azul cuando mueves la barrita
+        sliderFidelidad.addEventListener("input", function() {
+            let texto = this.value;
+            if (this.value === "0.7") texto += " (Recomendado)";
+            textoFidelidad.innerText = texto;
+        });
+
+        // Lógica de envío
         btnEnviar.addEventListener("click", async () => {
             const archivo = inputArchivo.files[0];
             if (!archivo) return alert("Sube una imagen primero");
@@ -65,7 +84,7 @@
             imgResultado.classList.add("hidden");
 
             try {
-                // 1. Subir imagen a ImgBB directamente vía HTTP POST
+                // 1. Subir imagen a ImgBB
                 const formData = new FormData();
                 formData.append("image", archivo);
 
@@ -78,18 +97,21 @@
                 if (!dataImgbb.success) throw new Error("Falló la subida a ImgBB");
                 const urlOriginal = dataImgbb.data.url;
 
-                // 2. Crear tarea en Firestore con el link de la imagen
+                // 2. Crear tarea en Firestore
                 txtEstado.innerText = "2/3 Kaggle está procesando...";
+                
                 const comando = selectComando.value;
+                const nivelFidelidad = parseFloat(sliderFidelidad.value); // Capturamos el valor exacto de la barrita
                 
                 const docRef = await addDoc(collection(db, "tareas_ia"), {
                     estado: "pendiente",
                     comando: comando,
+                    fidelidad: nivelFidelidad, // Lo enviamos al servidor aquí
                     url_imagen: urlOriginal,
                     fecha: new Date()
                 });
 
-                // 3. Escuchar la respuesta de Kaggle en tiempo real
+                // 3. Escuchar la respuesta
                 const unsubscribe = onSnapshot(doc(db, "tareas_ia", docRef.id), (documento) => {
                     const datos = documento.data();
                     

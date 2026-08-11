@@ -13,12 +13,25 @@
         
         <input type="file" id="archivo" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
         
+        <!-- Selector de comandos original -->
         <select id="comando" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
+            <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
             <option value="solo_encuadre">🎯 Solo Encuadre</option>
             <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
             <option value="solo_recortar">✂️ Solo Recortar Fondo</option>
-            <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
         </select>
+        
+        <!-- 👇 NUEVO: Selector de Fondos -->
+        <div class="mb-4 bg-gray-700 p-3 rounded">
+            <label class="block text-sm font-bold text-gray-300 mb-2">Fondo para la foto:</label>
+            <select id="fondoIA" class="w-full p-2 bg-gray-600 rounded text-white cursor-pointer">
+                <option value="0">PNG Transparente (Sin fondo)</option>
+                <option value="1">Fondo 1 (Ej: Paisaje)</option>
+                <option value="2">Fondo 2 (Ej: Estudio Azul)</option>
+                <option value="3">Fondo 3 (Ej: Oficina)</option>
+            </select>
+            <p class="text-xs text-gray-400 mt-1">Solo aplica si eliges "Proceso Completo".</p>
+        </div>
         
         <div class="mb-6 bg-gray-700 p-3 rounded">
             <label class="block text-sm font-bold text-gray-300 mb-2">
@@ -101,12 +114,14 @@
                 txtEstado.innerText = "2/3 Kaggle está procesando...";
                 
                 const comando = selectComando.value;
-                const nivelFidelidad = parseFloat(sliderFidelidad.value); // Capturamos el valor exacto de la barrita
+                const nivelFidelidad = parseFloat(sliderFidelidad.value);
+                const fondoSeleccionado = document.getElementById("fondoIA").value; // <- CAPTURAMOS EL FONDO
                 
                 const docRef = await addDoc(collection(db, "tareas_ia"), {
                     estado: "pendiente",
                     comando: comando,
-                    fidelidad: nivelFidelidad, // Lo enviamos al servidor aquí
+                    fidelidad: nivelFidelidad, 
+                    fondo_id: fondoSeleccionado, // <- LO ENVIAMOS A KAGGLE AQUÍ
                     url_imagen: urlOriginal,
                     fecha: new Date()
                 });

@@ -3,50 +3,64 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel IA - Pruebas</title>
+    <title>Panel IA - Laboratorio Profesional</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-gray-900 text-white flex justify-center items-center min-h-screen">
+<body class="bg-gray-900 text-white min-h-screen p-4 md:p-8 flex flex-col items-center">
 
-    <div class="bg-gray-800 p-8 rounded-xl shadow-2xl w-full max-w-md">
-        <h1 class="text-2xl font-bold mb-6 text-center text-blue-400">⚡ Laboratorio de IA</h1>
+    <!-- CONTENEDOR PRINCIPAL -->
+    <div class="w-full max-w-4xl grid grid-cols-1 md:grid-cols-2 gap-6">
         
-        <input type="file" id="archivo" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
-        
-        <!-- Selector de comandos original -->
-        <select id="comando" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
-            <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
-            <option value="solo_encuadre">🎯 Solo Encuadre</option>
-            <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
-            <option value="solo_recortar">✂️ Solo Recortar Fondo</option>
-        </select>
-        
-        <!-- 👇 NUEVO: Selector de Fondos -->
-        <div class="mb-4 bg-gray-700 p-3 rounded">
-            <label class="block text-sm font-bold text-gray-300 mb-2">Fondo para la foto:</label>
-            <select id="fondoIA" class="w-full p-2 bg-gray-600 rounded text-white cursor-pointer">
-                <option value="0">PNG Transparente (Sin fondo)</option>
-                <option value="1">Fondo 1 (Ej: Paisaje)</option>
-                <option value="2">Fondo 2 (Ej: Estudio Azul)</option>
-                <option value="3">Fondo 3 (Ej: Oficina)</option>
+        <!-- COLUMNA IZQUIERDA: CONTROLES -->
+        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl">
+            <h1 class="text-2xl font-bold mb-6 text-blue-400">⚡ Nueva Tarea IA</h1>
+            
+            <input type="file" id="archivo" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
+            
+            <label class="block text-sm font-bold text-gray-300 mb-1">Acción a realizar:</label>
+            <select id="comando" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
+                <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
+                <option value="solo_encuadre">🎯 Solo Encuadre</option>
+                <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
+                <option value="solo_recortar">✂️ Solo Recortar + Fondo</option>
+                <option value="inpainting_manual">🖌️ Inpainting (Próximamente)</option>
             </select>
-            <p class="text-xs text-gray-400 mt-1">Solo aplica si eliges "Proceso Completo".</p>
-        </div>
-        
-        <div class="mb-6 bg-gray-700 p-3 rounded">
-            <label class="block text-sm font-bold text-gray-300 mb-2">
-                Fidelidad al rostro original: <span id="valorFidelidad" class="text-blue-400">0.7 (Recomendado)</span>
-            </label>
-            <input type="range" id="fidelidadIA" min="0.1" max="1.0" step="0.1" value="0.7" class="w-full cursor-pointer">
-            <p class="text-xs text-gray-400 mt-1">0.1 = IA inventa mucho | 1.0 = IA no cambia rasgos (Mantiene color de ojos)</p>
+
+            <div class="mb-4 bg-gray-700 p-3 rounded">
+                <label class="block text-sm font-bold text-gray-300 mb-2">Fondo Nº (0 = Transparente):</label>
+                <!-- AHORA ES UN NÚMERO DEL 0 AL 25 -->
+                <input type="number" id="fondoIA" min="0" max="25" value="0" class="w-full p-2 bg-gray-600 rounded text-white font-bold text-center">
+            </div>
+            
+            <div class="mb-4 bg-gray-700 p-3 rounded">
+                <label class="block text-sm font-bold text-gray-300 mb-2">
+                    Fidelidad al rostro: <span id="valorFidelidad" class="text-blue-400">0.7</span>
+                </label>
+                <input type="range" id="fidelidadIA" min="0.1" max="1.0" step="0.1" value="0.7" class="w-full cursor-pointer">
+            </div>
+
+            <!-- NUEVO: INPUT PARA EL PROMPT DE INPAINTING -->
+            <div class="mb-6 bg-gray-700 p-3 rounded">
+                <label class="block text-sm font-bold text-gray-300 mb-2">Instrucción (Prompt para Inpainting):</label>
+                <input type="text" id="promptIA" placeholder="Ej: Un ojo abierto realista..." class="w-full p-2 bg-gray-600 rounded text-white">
+            </div>
+
+            <button id="btnEnviar" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg">
+                Enviar a Servidor
+            </button>
+            <div id="estado" class="mt-4 text-center font-bold text-yellow-400 hidden">Iniciando...</div>
         </div>
 
-        <button id="btnEnviar" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors">
-            Enviar a Kaggle
-        </button>
-
-        <div id="estado" class="mt-4 text-center font-bold text-yellow-400 hidden">Iniciando...</div>
-        <img id="resultadoImg" class="mt-6 w-full rounded-lg shadow-lg hidden" src="" alt="Resultado">
+        <!-- COLUMNA DERECHA: HISTORIAL PERSISTENTE -->
+        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col h-[600px]">
+            <h2 class="text-xl font-bold mb-4 text-green-400">📂 Historial de Trabajos</h2>
+            <p class="text-xs text-gray-400 mb-4">Si cierras la página, los trabajos pendientes seguirán aquí.</p>
+            
+            <!-- Contenedor scrolleable de las tarjetas -->
+            <div id="contenedorHistorial" class="overflow-y-auto flex-1 pr-2 space-y-3">
+                <!-- Aquí se inyectarán los trabajos automáticamente -->
+            </div>
+        </div>
     </div>
 
     <!-- Scripts de Firebase y Lógica -->
@@ -54,7 +68,7 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
         import { getFirestore, collection, addDoc, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
 
-        // Configuración de Firebase
+        // 1. CONFIGURACIÓN FIREBASE E IMGBB
         const firebaseConfig = {
             apiKey: "AIzaSyDP1vPBXFQkvzx1YIbTCziOzXDRxQ6a_kM",
             authDomain: "botartes.firebaseapp.com",
@@ -62,100 +76,127 @@
             messagingSenderId: "513493472800",
             appId: "1:513493472800:web:55b4aed3c9ae1435aa0e45"
         };
-
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
-
-        // Llave de ImgBB
         const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0";
 
-        // Captura de elementos del HTML
-        const btnEnviar = document.getElementById("btnEnviar");
-        const inputArchivo = document.getElementById("archivo");
-        const selectComando = document.getElementById("comando");
-        const txtEstado = document.getElementById("estado");
-        const imgResultado = document.getElementById("resultadoImg");
-        const sliderFidelidad = document.getElementById("fidelidadIA");
-        const textoFidelidad = document.getElementById("valorFidelidad");
+        // 2. LÓGICA DEL HISTORIAL (LOCALSTORAGE)
+        let historialTareas = JSON.parse(localStorage.getItem('tareasIA')) || [];
 
-        // Lógica visual: Cambiar el numerito azul cuando mueves la barrita
-        sliderFidelidad.addEventListener("input", function() {
-            let texto = this.value;
-            if (this.value === "0.7") texto += " (Recomendado)";
-            textoFidelidad.innerText = texto;
+        function guardarEnLocalStorage() {
+            localStorage.setItem('tareasIA', JSON.stringify(historialTareas));
+            renderizarHistorial();
+        }
+
+        function renderizarHistorial() {
+            const contenedor = document.getElementById("contenedorHistorial");
+            contenedor.innerHTML = ""; // Limpiar
+            
+            historialTareas.forEach(tarea => {
+                let colorEstado = tarea.estado === 'completado' ? 'text-green-400' : (tarea.estado === 'error' ? 'text-red-500' : 'text-yellow-400');
+                let htmlImg = tarea.estado === 'completado' 
+                    ? `<a href="${tarea.urlResultado}" target="_blank"><img src="${tarea.urlResultado}" class="w-full h-32 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>` 
+                    : `<div class="w-full h-32 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
+
+                let tarjeta = `
+                    <div class="bg-gray-900 p-3 rounded-lg border border-gray-700 shadow">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="text-xs text-gray-400">ID: ${tarea.id.slice(0,6)}...</p>
+                                <p class="text-sm font-bold text-white capitalize">${tarea.comando.replace(/_/g, ' ')}</p>
+                            </div>
+                            <span class="text-xs font-bold ${colorEstado} uppercase bg-gray-800 px-2 py-1 rounded">${tarea.estado}</span>
+                        </div>
+                        ${htmlImg}
+                    </div>
+                `;
+                contenedor.innerHTML += tarjeta;
+            });
+        }
+
+        // 3. RE-CONECTAR TAREAS PENDIENTES AL ABRIR LA PÁGINA
+        function reconectarPendientes() {
+            historialTareas.forEach((tarea, index) => {
+                if (tarea.estado === 'pendiente' || tarea.estado === 'procesando') {
+                    const unsubscribe = onSnapshot(doc(db, "tareas_ia", tarea.id), (documento) => {
+                        const datos = documento.data();
+                        if (datos && (datos.estado === "completado" || datos.estado === "error")) {
+                            historialTareas[index].estado = datos.estado;
+                            if (datos.estado === "completado") historialTareas[index].urlResultado = datos.url_resultado;
+                            guardarEnLocalStorage();
+                            unsubscribe(); // Dejamos de escuchar esta tarea
+                        } else if (datos) {
+                            historialTareas[index].estado = datos.estado;
+                            guardarEnLocalStorage();
+                        }
+                    });
+                }
+            });
+        }
+
+        // Inicializamos la vista al cargar la web
+        renderizarHistorial();
+        reconectarPendientes();
+
+        // 4. LÓGICA DE CONTROLES VISUALES
+        document.getElementById("fidelidadIA").addEventListener("input", function() {
+            document.getElementById("valorFidelidad").innerText = this.value;
         });
 
-        // Lógica de envío
+        // 5. ENVÍO DE NUEVA TAREA
+        const btnEnviar = document.getElementById("btnEnviar");
+        const txtEstado = document.getElementById("estado");
+
         btnEnviar.addEventListener("click", async () => {
-            const archivo = inputArchivo.files[0];
+            const archivo = document.getElementById("archivo").files[0];
             if (!archivo) return alert("Sube una imagen primero");
 
             btnEnviar.disabled = true;
             btnEnviar.classList.replace("bg-blue-600", "bg-gray-600");
             txtEstado.classList.remove("hidden");
-            txtEstado.innerText = "1/3 Subiendo imagen a ImgBB...";
-            imgResultado.classList.add("hidden");
+            txtEstado.innerText = "Subiendo foto...";
 
             try {
-                // 1. Subir imagen a ImgBB
+                // Subir a ImgBB
                 const formData = new FormData();
                 formData.append("image", archivo);
-
-                const resImgbb = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, {
-                    method: "POST",
-                    body: formData
-                });
+                const resImgbb = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formData });
                 const dataImgbb = await resImgbb.json();
+                if (!dataImgbb.success) throw new Error("Falló ImgBB");
                 
-                if (!dataImgbb.success) throw new Error("Falló la subida a ImgBB");
-                const urlOriginal = dataImgbb.data.url;
-
-                // 2. Crear tarea en Firestore
-                txtEstado.innerText = "2/3 Kaggle está procesando...";
-                
-                const comando = selectComando.value;
-                const nivelFidelidad = parseFloat(sliderFidelidad.value);
-                const fondoSeleccionado = document.getElementById("fondoIA").value; // <- CAPTURAMOS EL FONDO
-                
+                // Enviar a Firestore
                 const docRef = await addDoc(collection(db, "tareas_ia"), {
                     estado: "pendiente",
-                    comando: comando,
-                    fidelidad: nivelFidelidad, 
-                    fondo_id: fondoSeleccionado, // <- LO ENVIAMOS A KAGGLE AQUÍ
-                    url_imagen: urlOriginal,
-                    fecha: new Date()
+                    comando: document.getElementById("comando").value,
+                    fidelidad: parseFloat(document.getElementById("fidelidadIA").value),
+                    fondo_id: document.getElementById("fondoIA").value, // El número de 0 a 25
+                    prompt: document.getElementById("promptIA").value,  // El texto para Inpainting
+                    url_imagen: dataImgbb.data.url,
+                    fecha: new Date().toISOString()
                 });
 
-                // 3. Escuchar la respuesta
-                const unsubscribe = onSnapshot(doc(db, "tareas_ia", docRef.id), (documento) => {
-                    const datos = documento.data();
-                    
-                    if (datos.estado === "procesando") {
-                        txtEstado.innerText = "⚙️ Kaggle dice: ¡Procesando ahora mismo!";
-                        txtEstado.className = "mt-4 text-center font-bold text-blue-400";
-                    } 
-                    else if (datos.estado === "completado") {
-                        txtEstado.innerText = "✅ ¡Listo! Resultado recibido.";
-                        txtEstado.className = "mt-4 text-center font-bold text-green-400";
-                        imgResultado.src = datos.url_resultado;
-                        imgResultado.classList.remove("hidden");
-                        
-                        btnEnviar.disabled = false;
-                        btnEnviar.classList.replace("bg-gray-600", "bg-blue-600");
-                        unsubscribe();
-                    }
-                    else if (datos.estado === "error") {
-                        txtEstado.innerText = "❌ Hubo un error en Kaggle.";
-                        txtEstado.className = "mt-4 text-center font-bold text-red-500";
-                        btnEnviar.disabled = false;
-                        btnEnviar.classList.replace("bg-gray-600", "bg-blue-600");
-                        unsubscribe();
-                    }
-                });
+                // Registrar en nuestro historial local
+                let nuevaTarea = {
+                    id: docRef.id,
+                    comando: document.getElementById("comando").value,
+                    estado: 'pendiente',
+                    urlOriginal: dataImgbb.data.url,
+                    urlResultado: null
+                };
+                historialTareas.unshift(nuevaTarea); // Lo pone de primero en la lista
+                guardarEnLocalStorage();
+
+                // Conectar el listener para esta nueva tarea
+                reconectarPendientes();
+
+                // Resetear botones
+                txtEstado.innerText = "¡Enviado a Kaggle! Mira el historial.";
+                setTimeout(() => txtEstado.classList.add("hidden"), 3000);
 
             } catch (error) {
                 console.error(error);
-                txtEstado.innerText = "❌ Error de conexión.";
+                alert("Error enviando la tarea.");
+            } finally {
                 btnEnviar.disabled = false;
                 btnEnviar.classList.replace("bg-gray-600", "bg-blue-600");
             }

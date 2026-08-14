@@ -21,7 +21,7 @@
                 <img id="imgFondo" class="absolute top-0 left-0 w-full h-auto" src="" style="z-index: 1;">
                 <canvas id="lienzoDibujo" class="relative w-full h-auto cursor-crosshair" style="z-index: 2;"></canvas>
             </div>
-            
+                  
             <div id="controlesPincel" class="hidden mb-4 bg-gray-700 p-3 rounded flex justify-between items-center">
                 <span class="text-sm font-bold text-gray-300">Tamaño del pincel:</span>
                 <input type="range" id="grosorPincel" min="5" max="50" value="20" class="w-1/2">
@@ -36,6 +36,30 @@
                 <option value="solo_recortar">✂️ Solo Recortar + Fondo</option>
                 <option value="inpainting_manual">🖌️ Inpainting Manual</option>
             </select>
+            
+            <!-- Selector de Tamaño de Impresión (Estilo Oscuro) -->
+            <div class="mb-4 bg-gray-700 p-3 rounded">
+                <label class="block text-sm font-bold text-gray-300 mb-2">Tamaño de Impresión (cm):</label>
+                <select id="select-dimension" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
+                    <option value="original">Mantener Original</option>
+                    <option value="16x22">16 x 22 cm</option>
+                    <option value="20x27">20 x 27 cm</option>
+                    <option value="30x42">30 x 42 cm</option>
+                    <option value="40x50">40 x 50 cm</option>
+                    <option value="50x60">50 x 60 cm</option>
+                </select>
+            </div>
+
+            <!-- Selector de Malla de Misión (Estilo Oscuro) -->
+            <div class="mb-4 bg-gray-700 p-3 rounded">
+                <label class="block text-sm font-bold text-gray-300 mb-2">Malla de Misión:</label>
+                <select id="select-malla" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
+                    <option value="0">Ninguna (Sin malla)</option>
+                    <option value="1">Malla Misión 1</option>
+                    <option value="2">Malla Misión 2</option>
+                    <option value="3">Malla Misión 3</option>
+                </select>
+            </div>
 
             <div class="mb-4 bg-gray-700 p-3 rounded">
                 <label class="block text-sm font-bold text-gray-300 mb-2">Fondo Nº (0 = Transparente):</label>
@@ -242,6 +266,10 @@
             const archivo = inputArchivo.files[0];
             const comando = document.getElementById("comando").value;
             
+            // CAPTURAMOS LAS VARIABLES EXACTAMENTE AL MOMENTO DE ENVIAR
+            const dimensionElegida = document.getElementById("select-dimension").value;
+            const mallaElegida = document.getElementById("select-malla").value;
+            
             if (!archivo) return alert("Sube una imagen primero");
             if (comando === "inpainting_manual" && document.getElementById("promptIA").value.trim() === "") {
                 return alert("Para Inpainting necesitas escribir una instrucción (Prompt).");
@@ -279,6 +307,8 @@
                     comando: comando,
                     fidelidad: parseFloat(document.getElementById("fidelidadIA").value),
                     fondo_id: document.getElementById("fondoIA").value,
+                    dimension: dimensionElegida, // NUEVO DATO ENVIADO
+                    malla_id: mallaElegida,      // NUEVO DATO ENVIADO
                     prompt: document.getElementById("promptIA").value,
                     url_imagen: urlOriginal,
                     url_mascara: urlMascara, // Se va vacía si no es inpainting

@@ -119,9 +119,29 @@
             contenedor.innerHTML = ""; 
             historialTareas.forEach(tarea => {
                 let colorEstado = tarea.estado === 'completado' ? 'text-green-400' : (tarea.estado === 'error' ? 'text-red-500' : 'text-yellow-400');
-                let htmlImg = tarea.estado === 'completado' 
-                    ? `<a href="${tarea.urlResultado}" target="_blank"><img src="${tarea.urlResultado}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>` 
-                    : `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
+                
+                let htmlImg = "";
+                if (tarea.estado === 'completado') {
+                    // Si tiene malla, mostramos las dos imágenes en dos columnas
+                    if (tarea.urlResultadoMalla) {
+                        htmlImg = `
+                        <div class="grid grid-cols-2 gap-2 mt-2">
+                            <a href="${tarea.urlResultado}" target="_blank">
+                                <div class="text-[10px] text-center text-gray-400 mb-1">Corte Original</div>
+                                <img src="${tarea.urlResultado}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
+                            </a>
+                            <a href="${tarea.urlResultadoMalla}" target="_blank">
+                                <div class="text-[10px] text-center text-gray-400 mb-1">Con Malla</div>
+                                <img src="${tarea.urlResultadoMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
+                            </a>
+                        </div>`;
+                    } else {
+                        // Si no pidió malla, mostramos solo una como siempre
+                        htmlImg = `<a href="${tarea.urlResultado}" target="_blank"><img src="${tarea.urlResultado}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
+                    }
+                } else {
+                    htmlImg = `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
+                }
 
                 contenedor.innerHTML += `
                     <div class="bg-gray-900 p-3 rounded-lg border border-gray-700 shadow">
@@ -145,7 +165,13 @@
                         const datos = documento.data();
                         if (datos && (datos.estado === "completado" || datos.estado === "error")) {
                             historialTareas[index].estado = datos.estado;
-                            if (datos.estado === "completado") historialTareas[index].urlResultado = datos.url_resultado;
+                            if (datos.estado === "completado") {
+                                historialTareas[index].urlResultado = datos.url_resultado;
+                                // Atrapamos la segunda foto si existe
+                                if (datos.url_resultado_malla) {
+                                    historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
+                                }
+                            }
                             guardarEnLocalStorage();
                             unsubscribe();
                         } else if (datos) {

@@ -319,8 +319,8 @@
                 let urlOriginal = dataOrig.data.url;
                 let urlMascara = "";
 
-                // 2. Si es inpainting, extraer y subir la máscara
-                if (comando === "inpainting_manual") {
+                // 2. Si es inpainting o armonización, extraer y subir la máscara
+                if (comando === "inpainting_manual" || comando === "armonizar_color") {
                     const blobMascara = await obtenerMascaraBlob();
                     const formMascara = new FormData();
                     formMascara.append("image", blobMascara, "mascara.png");

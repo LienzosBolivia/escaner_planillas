@@ -34,7 +34,9 @@
                 <option value="solo_encuadre">🎯 Solo Encuadre</option>
                 <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
                 <option value="solo_recortar">✂️ Solo Recortar + Fondo</option>
-                <option value="inpainting_manual">🖌️ Inpainting Manual</option>
+                <option value="inpainting_manual">🖌️ Inpainting Manual (Crear)</option>
+                <!-- LA NUEVA HERRAMIENTA A CONTINUACIÓN -->
+                <option value="armonizar_color">🎨 Armonizar / Emparejar Color</option>
             </select>
             
             <!-- Selector de Tamaño de Impresión (Estilo Oscuro) -->
@@ -297,8 +299,9 @@
             const mallaElegida = document.getElementById("select-malla").value;
             
             if (!archivo) return alert("Sube una imagen primero");
-            if (comando === "inpainting_manual" && document.getElementById("promptIA").value.trim() === "") {
-                return alert("Para Inpainting necesitas escribir una instrucción (Prompt).");
+            // Cambia esta línea:
+            if ((comando === "inpainting_manual" || comando === "armonizar_color") && document.getElementById("promptIA").value.trim() === "") {
+                return alert("Para Inpainting o Armonizar necesitas escribir una instrucción (Prompt).");
             }
 
             btnEnviar.disabled = true;

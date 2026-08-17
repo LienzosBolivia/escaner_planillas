@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
-<head> 
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel IA - Laboratorio Profesional</title>
@@ -137,24 +137,45 @@
         window.cargarImagenEnLienzo = async function(url) {
             try {
                 alert("Descargando imagen al panel, espera unos segundos...");
-                // Usamos un proxy libre (allorigins) para evadir los bloqueos de seguridad del navegador (CORS)
-                const response = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(url));
+                // PLAN A: Usamos un proxy más robusto para CORS
+                const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(url);
+                const response = await fetch(proxyUrl);
+                
+                if (!response.ok) throw new Error("Fallo en el proxy primario");
+                
                 const blob = await response.blob();
                 const file = new File([blob], "imagen_cargada.jpg", { type: "image/jpeg" });
                 
                 const dataTransfer = new DataTransfer();
                 dataTransfer.items.add(file);
                 document.getElementById('archivo').files = dataTransfer.files;
-                
-                // Disparar el evento change para que la web crea que la subiste manualmente
-                const event = new Event('change');
-                document.getElementById('archivo').dispatchEvent(event);
-                
-                // Scroll arriba
+                document.getElementById('archivo').dispatchEvent(new Event('change'));
                 window.scrollTo({ top: 0, behavior: 'smooth' });
+
             } catch (error) {
-                alert("Error al intentar cargar la imagen. Quizás necesites descargarla manualmente a tu celular.");
-                console.error(error);
+                console.warn("Fallo el Plan A, ejecutando Plan B (Canvas)...", error);
+                // PLAN B: Forzar la descarga dibujando en un Canvas invisible
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.src = url; // Intentar directo
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    canvas.toBlob((blob) => {
+                        const file = new File([blob], "imagen_cargada.jpg", { type: "image/jpeg" });
+                        const dataTransfer = new DataTransfer();
+                        dataTransfer.items.add(file);
+                        document.getElementById('archivo').files = dataTransfer.files;
+                        document.getElementById('archivo').dispatchEvent(new Event('change'));
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }, 'image/jpeg');
+                };
+                img.onerror = () => {
+                     alert("Seguridad del navegador bloqueó la imagen. Por favor, descárgala a tu galería manualmente.");
+                };
             }
         };
 
@@ -290,15 +311,20 @@
 
         btnActivarRecorte.addEventListener("click", () => {
             if (cropperInstance) return;
-            // Ocultar lienzo de dibujo para que no estorbe
+            
+            // EL SECRETO: Quitamos lo 'absoluto' para que el contenedor recupere su altura en celulares
             canvas.classList.add("hidden");
             controlesPincel.classList.add("hidden");
+            imgFondo.classList.remove("absolute");
+            imgFondo.classList.add("relative");
             
             // Iniciar caja de recorte
             cropperInstance = new Cropper(imgFondo, {
-                viewMode: 1, // Restringe el cuadro dentro de la imagen
-                autoCropArea: 0.8,
-                background: false
+                viewMode: 1, 
+                autoCropArea: 0.9, // Más grande por defecto
+                background: false,
+                minContainerHeight: 350, // ¡Fuerza a que sea grande en el móvil!
+                responsive: true
             });
             
             btnActivarRecorte.classList.add("hidden");
@@ -311,6 +337,10 @@
                 cropperInstance.destroy();
                 cropperInstance = null;
             }
+            
+            // Devolvemos todo a la normalidad
+            imgFondo.classList.remove("relative");
+            imgFondo.classList.add("absolute");
             canvas.classList.remove("hidden");
             controlesPincel.classList.remove("hidden");
             
@@ -322,70 +352,35 @@
         btnAplicarRecorte.addEventListener("click", () => {
             if (!cropperInstance) return;
             
-            // Extraer la porción recortada
             const canvasRecortado = cropperInstance.getCroppedCanvas();
-            
-            // Apagar y destruir la interfaz de recorte
             cropperInstance.destroy();
             cropperInstance = null;
             
-            // Convertir la imagen recortada en nuestro nuevo archivo base
             canvasRecortado.toBlob((blob) => {
                 const file = new File([blob], "recorte_manual.jpg", { type: "image/jpeg" });
                 const dataTransfer = new DataTransfer();
                 dataTransfer.items.add(file);
-                
-                // Sobrescribimos el archivo del input con el nuevo recorte
                 document.getElementById('archivo').files = dataTransfer.files;
                 
-                // Actualizamos visualmente la pantalla
                 imgFondo.src = URL.createObjectURL(blob);
                 imgFondo.onload = () => {
                     canvas.width = imgFondo.width;
                     canvas.height = imgFondo.height;
-                    ctx.clearRect(0, 0, canvas.width, canvas.height); // Limpia trazos viejos
+                    ctx.clearRect(0, 0, canvas.width, canvas.height); 
                     ctx.lineCap = "round";
                     ctx.lineJoin = "round";
                     ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
                 }
             }, "image/jpeg", 0.95);
             
-            // Restaurar botones de la interfaz
+            // Devolvemos todo a la normalidad
+            imgFondo.classList.remove("relative");
+            imgFondo.classList.add("absolute");
             canvas.classList.remove("hidden");
             controlesPincel.classList.remove("hidden");
             btnActivarRecorte.classList.remove("hidden");
             btnAplicarRecorte.classList.add("hidden");
             btnCancelarRecorte.classList.add("hidden");
-        });
-
-        // --- SISTEMA DE PINCEL ---
-        canvas.addEventListener("mousedown", (e) => { dibujando = true; pintar(e); });
-        canvas.addEventListener("mouseup", () => { dibujando = false; ctx.beginPath(); });
-        canvas.addEventListener("mousemove", pintar);
-        canvas.addEventListener("mouseleave", () => { dibujando = false; ctx.beginPath(); });
-        
-        // Soporte Touch para celulares
-        canvas.addEventListener("touchstart", (e) => { dibujando = true; pintar(e.touches[0]); e.preventDefault(); });
-        canvas.addEventListener("touchend", () => { dibujando = false; ctx.beginPath(); });
-        canvas.addEventListener("touchmove", (e) => { pintar(e.touches[0]); e.preventDefault(); });
-
-        function pintar(e) {
-            if (!dibujando) return;
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
-            const x = (e.clientX - rect.left) * scaleX;
-            const y = (e.clientY - rect.top) * scaleY;
-
-            ctx.lineWidth = grosorPincel.value;
-            ctx.lineTo(x, y);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-        }
-
-        document.getElementById("btnLimpiar").addEventListener("click", () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
         });
 
         function obtenerMascaraBlob() {

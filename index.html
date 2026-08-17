@@ -28,9 +28,11 @@
             </div>
 
             <!-- EL LIENZO DE DIBUJO -->
-            <div id="contenedorLienzo" class="relative hidden mb-4 border-2 border-dashed border-gray-500 rounded flex justify-center bg-gray-900 overflow-hidden">
-                <img id="imgFondo" class="absolute top-0 left-0 w-full h-auto block" src="" style="z-index: 1;">
-                <canvas id="lienzoDibujo" class="relative w-full h-auto cursor-crosshair" style="z-index: 2;"></canvas>
+            <div id="contenedorLienzo" class="relative hidden mb-4 border-2 border-dashed border-gray-500 rounded bg-gray-900 overflow-hidden">
+                <!-- La imagen define el tamaño del contenedor naturalmente -->
+                <img id="imgFondo" class="w-full h-auto block" src="">
+                <!-- El lienzo flota absolutamente encima de la imagen con el tamaño exacto -->
+                <canvas id="lienzoDibujo" class="absolute top-0 left-0 w-full h-full cursor-crosshair"></canvas>
             </div>
                   
             <div id="controlesPincel" class="hidden mb-4 bg-gray-700 p-3 rounded flex justify-between items-center">
@@ -278,7 +280,7 @@
         const grosorPincel = document.getElementById("grosorPincel");
         
         let dibujando = false;
-        let cropperInstance = null; // Para la librería de recorte
+        let cropperInstance = null; 
 
         inputArchivo.addEventListener("change", (e) => {
             const file = e.target.files[0];
@@ -292,9 +294,9 @@
                     controlesPincel.classList.remove("hidden");
                     controlesEdicion.classList.remove("hidden");
                     
-                    // Resetear pincel y lienzo
-                    canvas.width = imgFondo.width;
-                    canvas.height = imgFondo.height;
+                    // AHORA USAMOS LA RESOLUCIÓN HD REAL DE LA IMAGEN
+                    canvas.width = imgFondo.naturalWidth;
+                    canvas.height = imgFondo.naturalHeight;
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.lineCap = "round";
                     ctx.lineJoin = "round";
@@ -312,18 +314,15 @@
         btnActivarRecorte.addEventListener("click", () => {
             if (cropperInstance) return;
             
-            // EL SECRETO: Quitamos lo 'absoluto' para que el contenedor recupere su altura en celulares
+            // Ocultamos el lienzo limpiamente sin romper clases CSS
             canvas.classList.add("hidden");
             controlesPincel.classList.add("hidden");
-            imgFondo.classList.remove("absolute");
-            imgFondo.classList.add("relative");
             
-            // Iniciar caja de recorte
             cropperInstance = new Cropper(imgFondo, {
                 viewMode: 1, 
-                autoCropArea: 0.9, // Más grande por defecto
+                autoCropArea: 0.9, 
                 background: false,
-                minContainerHeight: 350, // ¡Fuerza a que sea grande en el móvil!
+                minContainerHeight: 350,
                 responsive: true
             });
             
@@ -337,10 +336,6 @@
                 cropperInstance.destroy();
                 cropperInstance = null;
             }
-            
-            // Devolvemos todo a la normalidad
-            imgFondo.classList.remove("relative");
-            imgFondo.classList.add("absolute");
             canvas.classList.remove("hidden");
             controlesPincel.classList.remove("hidden");
             
@@ -364,8 +359,8 @@
                 
                 imgFondo.src = URL.createObjectURL(blob);
                 imgFondo.onload = () => {
-                    canvas.width = imgFondo.width;
-                    canvas.height = imgFondo.height;
+                    canvas.width = imgFondo.naturalWidth;
+                    canvas.height = imgFondo.naturalHeight;
                     ctx.clearRect(0, 0, canvas.width, canvas.height); 
                     ctx.lineCap = "round";
                     ctx.lineJoin = "round";
@@ -373,14 +368,42 @@
                 }
             }, "image/jpeg", 0.95);
             
-            // Devolvemos todo a la normalidad
-            imgFondo.classList.remove("relative");
-            imgFondo.classList.add("absolute");
             canvas.classList.remove("hidden");
             controlesPincel.classList.remove("hidden");
             btnActivarRecorte.classList.remove("hidden");
             btnAplicarRecorte.classList.add("hidden");
             btnCancelarRecorte.classList.add("hidden");
+        });
+
+        // --- SISTEMA DE PINCEL ---
+        canvas.addEventListener("mousedown", (e) => { dibujando = true; pintar(e); });
+        canvas.addEventListener("mouseup", () => { dibujando = false; ctx.beginPath(); });
+        canvas.addEventListener("mousemove", pintar);
+        canvas.addEventListener("mouseleave", () => { dibujando = false; ctx.beginPath(); });
+        
+        // El {passive: false} arregla que la pantalla no tiemble al pintar en celular
+        canvas.addEventListener("touchstart", (e) => { dibujando = true; pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
+        canvas.addEventListener("touchend", () => { dibujando = false; ctx.beginPath(); });
+        canvas.addEventListener("touchmove", (e) => { pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
+
+        function pintar(e) {
+            if (!dibujando) return;
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            // ¡MAGIA! Escala el grosor visual para que coincida con la resolución HD de la máscara
+            ctx.lineWidth = grosorPincel.value * scaleX;
+            ctx.lineTo(x, y);
+            ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(x, y);
+        }
+
+        document.getElementById("btnLimpiar").addEventListener("click", () => {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
         });
 
         function obtenerMascaraBlob() {

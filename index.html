@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel IA - Laboratorio Profesional</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- NUEVO: Librería profesional para recortes (Cropper.js) -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 </head>
 <body class="bg-gray-900 text-white min-h-screen p-4 md:p-8 flex flex-col items-center">
 
@@ -16,30 +20,35 @@
             
             <input type="file" id="archivo" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
             
-            <!-- EL LIENZO DE DIBUJO (Oculto hasta que subes foto) -->
+            <!-- NUEVO: Controles de Recorte Manual -->
+            <div id="controlesEdicion" class="hidden flex gap-2 mb-4">
+                <button id="btnActivarRecorte" class="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-sm py-2 rounded font-bold shadow transition">✂️ Recorte Manual</button>
+                <button id="btnAplicarRecorte" class="hidden flex-1 bg-green-600 hover:bg-green-500 text-white text-sm py-2 rounded font-bold shadow transition">✅ Aplicar Recorte</button>
+                <button id="btnCancelarRecorte" class="hidden bg-red-600 hover:bg-red-500 text-white text-sm px-4 py-2 rounded font-bold shadow transition">❌</button>
+            </div>
+
+            <!-- EL LIENZO DE DIBUJO -->
             <div id="contenedorLienzo" class="relative hidden mb-4 border-2 border-dashed border-gray-500 rounded flex justify-center bg-gray-900 overflow-hidden">
-                <img id="imgFondo" class="absolute top-0 left-0 w-full h-auto" src="" style="z-index: 1;">
+                <img id="imgFondo" class="absolute top-0 left-0 w-full h-auto block" src="" style="z-index: 1;">
                 <canvas id="lienzoDibujo" class="relative w-full h-auto cursor-crosshair" style="z-index: 2;"></canvas>
             </div>
                   
             <div id="controlesPincel" class="hidden mb-4 bg-gray-700 p-3 rounded flex justify-between items-center">
-                <span class="text-sm font-bold text-gray-300">Tamaño del pincel:</span>
-                <input type="range" id="grosorPincel" min="5" max="50" value="20" class="w-1/2">
-                <button id="btnLimpiar" class="bg-red-500 hover:bg-red-600 text-xs px-3 py-1 rounded font-bold">Limpiar Pincel</button>
+                <span class="text-sm font-bold text-gray-300">Grosor Pincel:</span>
+                <input type="range" id="grosorPincel" min="5" max="50" value="20" class="w-1/2 mx-2">
+                <button id="btnLimpiar" class="bg-red-500 hover:bg-red-600 text-xs px-3 py-1 rounded font-bold shadow">Limpiar</button>
             </div>
 
             <label class="block text-sm font-bold text-gray-300 mb-1">Acción a realizar:</label>
             <select id="comando" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
                 <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
-                <option value="solo_encuadre">🎯 Solo Encuadre</option>
+                <option value="solo_encuadre">🎯 Solo Encuadre Automático</option>
                 <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
-                <option value="solo_recortar">✂️ Solo Recortar + Fondo</option>
+                <option value="solo_recortar">✂️ Solo Quitar + Cambiar Fondo</option>
                 <option value="inpainting_manual">🖌️ Inpainting Manual (Crear)</option>
-                <!-- LA NUEVA HERRAMIENTA A CONTINUACIÓN -->
                 <option value="armonizar_color">🎨 Armonizar / Emparejar Color</option>
             </select>
             
-            <!-- Selector de Tamaño de Impresión (Estilo Oscuro) -->
             <div class="mb-4 bg-gray-700 p-3 rounded">
                 <label class="block text-sm font-bold text-gray-300 mb-2">Tamaño de Impresión (cm):</label>
                 <select id="select-dimension" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
@@ -52,7 +61,6 @@
                 </select>
             </div>
 
-            <!-- Selector de Malla de Misión (Estilo Oscuro) -->
             <div class="mb-4 bg-gray-700 p-3 rounded">
                 <label class="block text-sm font-bold text-gray-300 mb-2">Malla de Misión:</label>
                 <select id="select-malla" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
@@ -70,14 +78,14 @@
             
             <div class="mb-4 bg-gray-700 p-3 rounded">
                 <label class="block text-sm font-bold text-gray-300 mb-2">
-                    Fidelidad al rostro: <span id="valorFidelidad" class="text-blue-400">0.7</span>
+                    Nivel / Fuerza (Armonización y Restauración): <span id="valorFidelidad" class="text-blue-400">0.7</span>
                 </label>
                 <input type="range" id="fidelidadIA" min="0.1" max="1.0" step="0.1" value="0.7" class="w-full cursor-pointer">
             </div>
 
             <div class="mb-6 bg-gray-700 p-3 rounded">
-                <label class="block text-sm font-bold text-gray-300 mb-2">Instrucción (Solo para Inpainting):</label>
-                <input type="text" id="promptIA" placeholder="Ej: Un ojo abierto realista, alta calidad..." class="w-full p-2 bg-gray-600 rounded text-white">
+                <label class="block text-sm font-bold text-gray-300 mb-2">Instrucción (Solo Inpainting):</label>
+                <input type="text" id="promptIA" placeholder="Ej: Un ojo abierto realista..." class="w-full p-2 bg-gray-600 rounded text-white">
             </div>
 
             <button id="btnEnviar" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg">
@@ -87,9 +95,9 @@
         </div>
 
         <!-- COLUMNA DERECHA: HISTORIAL PERSISTENTE -->
-        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col h-[750px]">
+        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col h-[850px]">
             <h2 class="text-xl font-bold mb-4 text-green-400">📂 Historial de Trabajos</h2>
-            <div id="contenedorHistorial" class="overflow-y-auto flex-1 pr-2 space-y-3"></div>
+            <div id="contenedorHistorial" class="overflow-y-auto flex-1 pr-2 space-y-4"></div>
         </div>
     </div>
 
@@ -116,6 +124,40 @@
             renderizarHistorial();
         }
 
+        // ==========================================
+        // FUNCIONES GLOBALES: ELIMINAR Y CARGAR 
+        // ==========================================
+        window.eliminarTarea = function(id) {
+            if (confirm("¿Estás seguro de que quieres ocultar este trabajo?")) {
+                historialTareas = historialTareas.filter(t => t.id !== id);
+                guardarEnLocalStorage();
+            }
+        };
+
+        window.cargarImagenEnLienzo = async function(url) {
+            try {
+                alert("Descargando imagen al panel, espera unos segundos...");
+                // Usamos un proxy libre (allorigins) para evadir los bloqueos de seguridad del navegador (CORS)
+                const response = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(url));
+                const blob = await response.blob();
+                const file = new File([blob], "imagen_cargada.jpg", { type: "image/jpeg" });
+                
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                document.getElementById('archivo').files = dataTransfer.files;
+                
+                // Disparar el evento change para que la web crea que la subiste manualmente
+                const event = new Event('change');
+                document.getElementById('archivo').dispatchEvent(event);
+                
+                // Scroll arriba
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            } catch (error) {
+                alert("Error al intentar cargar la imagen. Quizás necesites descargarla manualmente a tu celular.");
+                console.error(error);
+            }
+        };
+
         function renderizarHistorial() {
             const contenedor = document.getElementById("contenedorHistorial");
             contenedor.innerHTML = ""; 
@@ -123,8 +165,9 @@
                 let colorEstado = tarea.estado === 'completado' ? 'text-green-400' : (tarea.estado === 'error' ? 'text-red-500' : 'text-yellow-400');
                 
                 let htmlImg = "";
+                let botonesAccion = "";
+
                 if (tarea.estado === 'completado') {
-                    // Si tiene malla, mostramos las dos imágenes en dos columnas
                     if (tarea.urlResultadoMalla) {
                         htmlImg = `
                         <div class="grid grid-cols-2 gap-2 mt-2">
@@ -138,23 +181,35 @@
                             </a>
                         </div>`;
                     } else {
-                        // Si no pidió malla, mostramos solo una como siempre
                         htmlImg = `<a href="${tarea.urlResultado}" target="_blank"><img src="${tarea.urlResultado}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
                     }
+                    
+                    // NUEVO: Botones de Acción (Cargar y Eliminar)
+                    botonesAccion = `
+                    <div class="flex gap-2 mt-3">
+                        <button onclick="cargarImagenEnLienzo('${tarea.urlResultado}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
+                        <button onclick="eliminarTarea('${tarea.id}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
+                    </div>`;
+
                 } else {
                     htmlImg = `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
+                    botonesAccion = `
+                    <div class="flex gap-2 mt-3">
+                        <button onclick="eliminarTarea('${tarea.id}')" class="w-full bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow">🗑️ Eliminar</button>
+                    </div>`;
                 }
 
                 contenedor.innerHTML += `
-                    <div class="bg-gray-900 p-3 rounded-lg border border-gray-700 shadow">
+                    <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 shadow relative">
                         <div class="flex justify-between items-start">
                             <div>
-                                <p class="text-xs text-gray-400">ID: ${tarea.id.slice(0,6)}...</p>
+                                <p class="text-[10px] text-gray-400">ID: ${tarea.id.slice(0,6)}</p>
                                 <p class="text-sm font-bold text-white capitalize">${tarea.comando.replace(/_/g, ' ')}</p>
                             </div>
-                            <span class="text-xs font-bold ${colorEstado} uppercase bg-gray-800 px-2 py-1 rounded">${tarea.estado}</span>
+                            <span class="text-xs font-bold ${colorEstado} uppercase bg-gray-800 px-2 py-1 rounded border border-gray-700">${tarea.estado}</span>
                         </div>
                         ${htmlImg}
+                        ${botonesAccion}
                     </div>
                 `;
             });
@@ -169,10 +224,7 @@
                             historialTareas[index].estado = datos.estado;
                             if (datos.estado === "completado") {
                                 historialTareas[index].urlResultado = datos.url_resultado;
-                                // Atrapamos la segunda foto si existe
-                                if (datos.url_resultado_malla) {
-                                    historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
-                                }
+                                if (datos.url_resultado_malla) historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
                             }
                             guardarEnLocalStorage();
                             unsubscribe();
@@ -193,17 +245,19 @@
         });
 
         // ==========================================
-        // LÓGICA DEL LIENZO DE INPAINTING
+        // LÓGICA DEL LIENZO Y CROPPER (RECORTE MANUAL)
         // ==========================================
         const inputArchivo = document.getElementById("archivo");
         const contenedorLienzo = document.getElementById("contenedorLienzo");
         const controlesPincel = document.getElementById("controlesPincel");
+        const controlesEdicion = document.getElementById("controlesEdicion");
         const imgFondo = document.getElementById("imgFondo");
         const canvas = document.getElementById("lienzoDibujo");
         const ctx = canvas.getContext("2d");
         const grosorPincel = document.getElementById("grosorPincel");
         
         let dibujando = false;
+        let cropperInstance = null; // Para la librería de recorte
 
         inputArchivo.addEventListener("change", (e) => {
             const file = e.target.files[0];
@@ -215,25 +269,105 @@
                 imgFondo.onload = () => {
                     contenedorLienzo.classList.remove("hidden");
                     controlesPincel.classList.remove("hidden");
+                    controlesEdicion.classList.remove("hidden");
                     
-                    // Ajustar tamaño del canvas a la imagen
+                    // Resetear pincel y lienzo
                     canvas.width = imgFondo.width;
                     canvas.height = imgFondo.height;
-                    
-                    // Configuramos el pincel
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.lineCap = "round";
                     ctx.lineJoin = "round";
-                    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)"; // Blanco semi-transparente para ver qué pintamos
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
                 };
             };
             reader.readAsDataURL(file);
         });
 
-        // Eventos del ratón para pintar
+        // --- SISTEMA DE RECORTE MANUAL ---
+        const btnActivarRecorte = document.getElementById("btnActivarRecorte");
+        const btnAplicarRecorte = document.getElementById("btnAplicarRecorte");
+        const btnCancelarRecorte = document.getElementById("btnCancelarRecorte");
+
+        btnActivarRecorte.addEventListener("click", () => {
+            if (cropperInstance) return;
+            // Ocultar lienzo de dibujo para que no estorbe
+            canvas.classList.add("hidden");
+            controlesPincel.classList.add("hidden");
+            
+            // Iniciar caja de recorte
+            cropperInstance = new Cropper(imgFondo, {
+                viewMode: 1, // Restringe el cuadro dentro de la imagen
+                autoCropArea: 0.8,
+                background: false
+            });
+            
+            btnActivarRecorte.classList.add("hidden");
+            btnAplicarRecorte.classList.remove("hidden");
+            btnCancelarRecorte.classList.remove("hidden");
+        });
+
+        btnCancelarRecorte.addEventListener("click", () => {
+            if (cropperInstance) {
+                cropperInstance.destroy();
+                cropperInstance = null;
+            }
+            canvas.classList.remove("hidden");
+            controlesPincel.classList.remove("hidden");
+            
+            btnActivarRecorte.classList.remove("hidden");
+            btnAplicarRecorte.classList.add("hidden");
+            btnCancelarRecorte.classList.add("hidden");
+        });
+
+        btnAplicarRecorte.addEventListener("click", () => {
+            if (!cropperInstance) return;
+            
+            // Extraer la porción recortada
+            const canvasRecortado = cropperInstance.getCroppedCanvas();
+            
+            // Apagar y destruir la interfaz de recorte
+            cropperInstance.destroy();
+            cropperInstance = null;
+            
+            // Convertir la imagen recortada en nuestro nuevo archivo base
+            canvasRecortado.toBlob((blob) => {
+                const file = new File([blob], "recorte_manual.jpg", { type: "image/jpeg" });
+                const dataTransfer = new DataTransfer();
+                dataTransfer.items.add(file);
+                
+                // Sobrescribimos el archivo del input con el nuevo recorte
+                document.getElementById('archivo').files = dataTransfer.files;
+                
+                // Actualizamos visualmente la pantalla
+                imgFondo.src = URL.createObjectURL(blob);
+                imgFondo.onload = () => {
+                    canvas.width = imgFondo.width;
+                    canvas.height = imgFondo.height;
+                    ctx.clearRect(0, 0, canvas.width, canvas.height); // Limpia trazos viejos
+                    ctx.lineCap = "round";
+                    ctx.lineJoin = "round";
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+                }
+            }, "image/jpeg", 0.95);
+            
+            // Restaurar botones de la interfaz
+            canvas.classList.remove("hidden");
+            controlesPincel.classList.remove("hidden");
+            btnActivarRecorte.classList.remove("hidden");
+            btnAplicarRecorte.classList.add("hidden");
+            btnCancelarRecorte.classList.add("hidden");
+        });
+
+        // --- SISTEMA DE PINCEL ---
         canvas.addEventListener("mousedown", (e) => { dibujando = true; pintar(e); });
         canvas.addEventListener("mouseup", () => { dibujando = false; ctx.beginPath(); });
         canvas.addEventListener("mousemove", pintar);
         canvas.addEventListener("mouseleave", () => { dibujando = false; ctx.beginPath(); });
+        
+        // Soporte Touch para celulares
+        canvas.addEventListener("touchstart", (e) => { dibujando = true; pintar(e.touches[0]); e.preventDefault(); });
+        canvas.addEventListener("touchend", () => { dibujando = false; ctx.beginPath(); });
+        canvas.addEventListener("touchmove", (e) => { pintar(e.touches[0]); e.preventDefault(); });
 
         function pintar(e) {
             if (!dibujando) return;
@@ -254,7 +388,6 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
         });
 
-        // Función para extraer la máscara como un archivo
         function obtenerMascaraBlob() {
             return new Promise(resolve => {
                 const maskCanvas = document.createElement("canvas");
@@ -262,14 +395,10 @@
                 maskCanvas.height = canvas.height;
                 const mCtx = maskCanvas.getContext("2d");
                 
-                // Fondo negro total
                 mCtx.fillStyle = "black";
                 mCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
-                
-                // Dibujo blanco
                 mCtx.drawImage(canvas, 0, 0);
                 
-                // Convertimos el blanco semi-transparente a blanco puro
                 const imgData = mCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
                 for (let i = 0; i < imgData.data.length; i += 4) {
                     if (imgData.data[i] > 0) {
@@ -294,23 +423,21 @@
             const archivo = inputArchivo.files[0];
             const comando = document.getElementById("comando").value;
             
-            // CAPTURAMOS LAS VARIABLES EXACTAMENTE AL MOMENTO DE ENVIAR
             const dimensionElegida = document.getElementById("select-dimension").value;
             const mallaElegida = document.getElementById("select-malla").value;
             
             if (!archivo) return alert("Sube una imagen primero");
-            // Cambia esta línea:
             if ((comando === "inpainting_manual" || comando === "armonizar_color") && document.getElementById("promptIA").value.trim() === "") {
-                return alert("Para Inpainting o Armonizar necesitas escribir una instrucción (Prompt).");
+                return alert("Necesitas escribir una instrucción o motivo (Prompt).");
             }
 
             btnEnviar.disabled = true;
             btnEnviar.classList.replace("bg-blue-600", "bg-gray-600");
             txtEstado.classList.remove("hidden");
-            txtEstado.innerText = "Subiendo imagen (y máscara si aplica)...";
+            txtEstado.innerText = "Subiendo imagen a la nube...";
 
             try {
-                // 1. Subir imagen original a ImgBB
+                // 1. Subir imagen original (o el recorte que hizo el usuario)
                 const formOriginal = new FormData();
                 formOriginal.append("image", archivo);
                 const resOrig = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formOriginal });
@@ -319,8 +446,9 @@
                 let urlOriginal = dataOrig.data.url;
                 let urlMascara = "";
 
-                // 2. Si es inpainting o armonización, extraer y subir la máscara
+                // 2. Si necesita máscara, extraerla y subirla
                 if (comando === "inpainting_manual" || comando === "armonizar_color") {
+                    txtEstado.innerText = "Subiendo máscara térmica...";
                     const blobMascara = await obtenerMascaraBlob();
                     const formMascara = new FormData();
                     formMascara.append("image", blobMascara, "mascara.png");
@@ -336,15 +464,15 @@
                     comando: comando,
                     fidelidad: parseFloat(document.getElementById("fidelidadIA").value),
                     fondo_id: document.getElementById("fondoIA").value,
-                    dimension: dimensionElegida, // NUEVO DATO ENVIADO
-                    malla_id: mallaElegida,      // NUEVO DATO ENVIADO
+                    dimension: dimensionElegida, 
+                    malla_id: mallaElegida,      
                     prompt: document.getElementById("promptIA").value,
                     url_imagen: urlOriginal,
-                    url_mascara: urlMascara, // Se va vacía si no es inpainting
+                    url_mascara: urlMascara,
                     fecha: new Date().toISOString()
                 });
 
-                // Registrar en nuestro historial local
+                // Registrar en local
                 let nuevaTarea = {
                     id: docRef.id,
                     comando: comando,
@@ -365,7 +493,7 @@
             } finally {
                 btnEnviar.disabled = false;
                 btnEnviar.classList.replace("bg-gray-600", "bg-blue-600");
-                ctx.clearRect(0, 0, canvas.width, canvas.height); // Limpia el lienzo al terminar
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
         });
     </script>

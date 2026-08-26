@@ -93,9 +93,12 @@
             <button id="btnEnviar" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg">
                 Enviar a Servidor
 				
-				<!-- PANEL DE ENERGÍA DEL SERVIDOR -->
+	          <!-- PANEL DE ENERGÍA DEL SERVIDOR -->
             <div class="mt-8 border-t border-gray-600 pt-4">
-                <h3 class="text-sm font-bold text-gray-400 mb-3 text-center">Gestión del Servidor</h3>
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-sm font-bold text-gray-400">Gestión del Servidor</h3>
+                    <button id="btnConfigurarURLs" class="text-gray-400 hover:text-white text-xs underline transition">⚙️ Configurar URLs</button>
+                </div>
                 <div class="flex gap-2">
                     <button id="btnPowerCPU" class="flex-1 bg-green-700 hover:bg-green-600 text-white text-xs py-2 rounded font-bold shadow transition">🟢 Prender CPU</button>
                     <button id="btnPowerGPU" class="flex-1 bg-purple-700 hover:bg-purple-600 text-white text-xs py-2 rounded font-bold shadow transition">🚀 Prender GPU</button>
@@ -527,45 +530,60 @@
         });
 		
 		// ==========================================
-        // CONTROL DE ENERGÍA (APAGAR Y ENCENDER)
+        // CONTROL DE ENERGÍA Y SEGURIDAD LOCAL
         // ==========================================
         
-        // BOTÓN APAGAR: Usa Firebase
+        // 1. Botón de Configuración (Guarda las URLs en tu PC)
+        document.getElementById("btnConfigurarURLs").addEventListener("click", () => {
+            const actualCPU = localStorage.getItem('url_apps_script_cpu') || "";
+            const nuevaCPU = prompt("Pega la URL de Apps Script para encender la CPU:", actualCPU);
+            if (nuevaCPU !== null) localStorage.setItem('url_apps_script_cpu', nuevaCPU.trim());
+
+            const actualGPU = localStorage.getItem('url_apps_script_gpu') || "";
+            const nuevaGPU = prompt("Pega la URL de Apps Script para encender la GPU:", actualGPU);
+            if (nuevaGPU !== null) localStorage.setItem('url_apps_script_gpu', nuevaGPU.trim());
+            
+            alert("✅ URLs guardadas de forma segura en este navegador.");
+        });
+
+        // 2. Encendido Seguro (Lee de tu PC, no del código)
+        async function encenderServidor(tipo) {
+            // Buscamos la URL guardada en secreto en tu navegador
+            const urlWebHook = localStorage.getItem(`url_apps_script_${tipo}`);
+            
+            if (!urlWebHook || urlWebHook === "") {
+                alert(`⚠️ Primero debes configurar la URL para ${tipo.toUpperCase()} haciendo clic en "⚙️ Configurar URLs".`);
+                return;
+            }
+
+            alert(`Solicitando encendido del servidor en modo ${tipo.toUpperCase()}...`);
+            try {
+                // Le pegamos el parámetro ?tipo=cpu o ?tipo=gpu
+                const urlFinal = `${urlWebHook}?tipo=${tipo}`;
+                
+                await fetch(urlFinal, { mode: 'no-cors' });
+                alert(`¡Señal enviada! Revisa Kaggle en un par de minutos.`);
+            } catch (error) {
+                alert("Hubo un problema enviando la señal.");
+            }
+        }
+
+        document.getElementById("btnPowerCPU").addEventListener("click", () => encenderServidor("cpu"));
+        document.getElementById("btnPowerGPU").addEventListener("click", () => encenderServidor("gpu"));
+        
+        // 3. Botón de Apagado (Vía Firebase)
         document.getElementById("btnPowerOff").addEventListener("click", async () => {
-            if(!confirm("¿Seguro que quieres apagar el servidor de Kaggle?")) return;
+            if(!confirm("¿Seguro que quieres enviar la señal para apagar el servidor?")) return;
             try {
                 await addDoc(collection(db, "tareas_ia"), {
                     estado: "pendiente",
                     comando: "apagar_servidor",
                     fecha: new Date().toISOString()
                 });
-                alert("Orden de apagado enviada a la cola. El servidor se detendrá al leerla.");
+                alert("Orden de apagado encolada. El servidor se detendrá al leerla.");
             } catch (error) {
                 alert("Error enviando orden de apagado.");
             }
-        });
-
-        // BOTONES ENCENDER: Usan Google Apps Script
-        const URL_APPS_SCRIPT_CPU = "TU_URL_DE_APPS_SCRIPT_PARA_CPU_AQUI";
-        const URL_APPS_SCRIPT_GPU = "TU_URL_DE_APPS_SCRIPT_PARA_GPU_AQUI";
-
-        async function encenderServidor(tipo, urlWebHook) {
-            alert(`Solicitando encendido del servidor ${tipo}...`);
-            try {
-                // Se usa 'no-cors' para que el navegador no bloquee la petición silenciosa
-                await fetch(urlWebHook, { mode: 'no-cors' });
-                alert(`¡Señal enviada! El servidor ${tipo} debería estar en línea en un par de minutos.`);
-            } catch (error) {
-                alert("Hubo un problema enviando la señal.");
-            }
-        }
-
-        document.getElementById("btnPowerCPU").addEventListener("click", () => {
-            encenderServidor("CPU", URL_APPS_SCRIPT_CPU);
-        });
-
-        document.getElementById("btnPowerGPU").addEventListener("click", () => {
-            encenderServidor("GPU", URL_APPS_SCRIPT_GPU);
         });
     </script>
 </body>

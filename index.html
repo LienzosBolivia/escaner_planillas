@@ -92,6 +92,17 @@
 
             <button id="btnEnviar" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg">
                 Enviar a Servidor
+				
+				<!-- PANEL DE ENERGÍA DEL SERVIDOR -->
+            <div class="mt-8 border-t border-gray-600 pt-4">
+                <h3 class="text-sm font-bold text-gray-400 mb-3 text-center">Gestión del Servidor</h3>
+                <div class="flex gap-2">
+                    <button id="btnPowerCPU" class="flex-1 bg-green-700 hover:bg-green-600 text-white text-xs py-2 rounded font-bold shadow transition">🟢 Prender CPU</button>
+                    <button id="btnPowerGPU" class="flex-1 bg-purple-700 hover:bg-purple-600 text-white text-xs py-2 rounded font-bold shadow transition">🚀 Prender GPU</button>
+                    <button id="btnPowerOff" class="flex-1 bg-red-700 hover:bg-red-600 text-white text-xs py-2 rounded font-bold shadow transition">🛑 Apagar</button>
+                </div>
+            </div>
+			
             </button>
             <div id="estado" class="mt-4 text-center font-bold text-yellow-400 hidden">Iniciando...</div>
         </div>
@@ -513,6 +524,48 @@
                 btnEnviar.classList.replace("bg-gray-600", "bg-blue-600");
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
             }
+        });
+		
+		// ==========================================
+        // CONTROL DE ENERGÍA (APAGAR Y ENCENDER)
+        // ==========================================
+        
+        // BOTÓN APAGAR: Usa Firebase
+        document.getElementById("btnPowerOff").addEventListener("click", async () => {
+            if(!confirm("¿Seguro que quieres apagar el servidor de Kaggle?")) return;
+            try {
+                await addDoc(collection(db, "tareas_ia"), {
+                    estado: "pendiente",
+                    comando: "apagar_servidor",
+                    fecha: new Date().toISOString()
+                });
+                alert("Orden de apagado enviada a la cola. El servidor se detendrá al leerla.");
+            } catch (error) {
+                alert("Error enviando orden de apagado.");
+            }
+        });
+
+        // BOTONES ENCENDER: Usan Google Apps Script
+        const URL_APPS_SCRIPT_CPU = "TU_URL_DE_APPS_SCRIPT_PARA_CPU_AQUI";
+        const URL_APPS_SCRIPT_GPU = "TU_URL_DE_APPS_SCRIPT_PARA_GPU_AQUI";
+
+        async function encenderServidor(tipo, urlWebHook) {
+            alert(`Solicitando encendido del servidor ${tipo}...`);
+            try {
+                // Se usa 'no-cors' para que el navegador no bloquee la petición silenciosa
+                await fetch(urlWebHook, { mode: 'no-cors' });
+                alert(`¡Señal enviada! El servidor ${tipo} debería estar en línea en un par de minutos.`);
+            } catch (error) {
+                alert("Hubo un problema enviando la señal.");
+            }
+        }
+
+        document.getElementById("btnPowerCPU").addEventListener("click", () => {
+            encenderServidor("CPU", URL_APPS_SCRIPT_CPU);
+        });
+
+        document.getElementById("btnPowerGPU").addEventListener("click", () => {
+            encenderServidor("GPU", URL_APPS_SCRIPT_GPU);
         });
     </script>
 </body>

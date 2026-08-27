@@ -45,6 +45,10 @@
             <select id="comando" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
                 <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
                 <option value="solo_encuadre">🎯 Solo Encuadre Automático</option>
+                
+                <!-- 🔥 NUEVA OPCIÓN AÑADIDA AQUÍ 🔥 -->
+                <option value="recorte_manual">📐 Recorte Manual Expansivo</option>
+                
                 <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
                 <option value="solo_recortar">✂️ Solo Quitar + Cambiar Fondo</option>
                 <option value="inpainting_manual">🖌️ Inpainting Manual (Crear)</option>
@@ -295,30 +299,7 @@
         
         let dibujando = false;
         let cropperInstance = null; 
-
-        inputArchivo.addEventListener("change", (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                imgFondo.src = event.target.result;
-                imgFondo.onload = () => {
-                    contenedorLienzo.classList.remove("hidden");
-                    controlesPincel.classList.remove("hidden");
-                    controlesEdicion.classList.remove("hidden");
-                    
-                    // AHORA USAMOS LA RESOLUCIÓN HD REAL DE LA IMAGEN
-                    canvas.width = imgFondo.naturalWidth;
-                    canvas.height = imgFondo.naturalHeight;
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.lineCap = "round";
-                    ctx.lineJoin = "round";
-                    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-                };
-            };
-            reader.readAsDataURL(file);
-        });
+        let datosRecorte = null; // 🔥 NUEVA VARIABLE GLOBAL PARA GUARDAR LAS COORDENADAS 🔥
 
         // --- SISTEMA DE RECORTE MANUAL ---
         const btnActivarRecorte = document.getElementById("btnActivarRecorte");
@@ -328,12 +309,23 @@
         btnActivarRecorte.addEventListener("click", () => {
             if (cropperInstance) return;
             
-            // Ocultamos el lienzo limpiamente sin romper clases CSS
+        let dibujando = false;
+        let cropperInstance = null; 
+        let datosRecorte = null; // 🔥 NUEVA VARIABLE GLOBAL PARA GUARDAR LAS COORDENADAS 🔥
+
+        // --- SISTEMA DE RECORTE MANUAL ---
+        const btnActivarRecorte = document.getElementById("btnActivarRecorte");
+        const btnAplicarRecorte = document.getElementById("btnAplicarRecorte");
+        const btnCancelarRecorte = document.getElementById("btnCancelarRecorte");
+
+        btnActivarRecorte.addEventListener("click", () => {
+            if (cropperInstance) return;
+            
             canvas.classList.add("hidden");
             controlesPincel.classList.add("hidden");
             
             cropperInstance = new Cropper(imgFondo, {
-                viewMode: 1, 
+                viewMode: 0, // 🔥 CLAVE: Permite salir del lienzo (antes era 1) 🔥
                 autoCropArea: 0.9, 
                 background: false,
                 minContainerHeight: 350,
@@ -360,6 +352,21 @@
 
         btnAplicarRecorte.addEventListener("click", () => {
             if (!cropperInstance) return;
+            
+            // 🔥 LA MAGIA: Solo capturamos los números exactos (true = redondeados), NO cortamos la foto 🔥
+            datosRecorte = cropperInstance.getData(true);
+            
+            cropperInstance.destroy();
+            cropperInstance = null;
+            
+            canvas.classList.remove("hidden");
+            controlesPincel.classList.remove("hidden");
+            btnActivarRecorte.classList.remove("hidden");
+            btnAplicarRecorte.classList.add("hidden");
+            btnCancelarRecorte.classList.add("hidden");
+            
+            alert("✅ Coordenadas guardadas. El servidor hará el recorte expansivo.");
+        });
             
             const canvasRecortado = cropperInstance.getCroppedCanvas();
             cropperInstance.destroy();
@@ -490,6 +497,11 @@
                     urlMascara = dataMascara.data.url;
                 }
                 
+                // 🔥 VALIDACIÓN DE SEGURIDAD 🔥
+                if (comando === "recorte_manual" && !datosRecorte) {
+                    throw new Error("Debes usar la herramienta '✂️ Recorte Manual' y darle a '✅ Aplicar Recorte' antes de enviar.");
+                }
+
                 // 3. Enviar a Firestore
                 const docRef = await addDoc(collection(db, "tareas_ia"), {
                     estado: "pendiente",
@@ -501,6 +513,13 @@
                     prompt: document.getElementById("promptIA").value,
                     url_imagen: urlOriginal,
                     url_mascara: urlMascara,
+                    
+                    // 🔥 AQUÍ ENVIAMOS LAS 4 COORDENADAS (Si no hay recorte, se envían ceros) 🔥
+                    crop_x: datosRecorte ? datosRecorte.x : 0,
+                    crop_y: datosRecorte ? datosRecorte.y : 0,
+                    crop_w: datosRecorte ? datosRecorte.width : 0,
+                    crop_h: datosRecorte ? datosRecorte.height : 0,
+                    
                     fecha: new Date().toISOString()
                 });
 

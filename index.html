@@ -300,6 +300,11 @@
         let dibujando = false;
         let cropperInstance = null; 
         let datosRecorte = null; 
+        
+        // 🔥 VARIABLES GLOBALES PARA EL TRUCO DE EXPANSIÓN 🔥
+        let urlOriginalImagen = ""; 
+        let extraX = 0; 
+        let extraY = 0;
 
         // 1. CARGAR IMAGEN Y PREPARAR PIZARRA
         inputArchivo.addEventListener("change", (e) => {
@@ -308,8 +313,10 @@
 
             const reader = new FileReader();
             reader.onload = (event) => {
-                imgFondo.src = event.target.result;
-                imgFondo.onload = () => {
+                urlOriginalImagen = event.target.result; // Guardamos la original
+                imgFondo.src = urlOriginalImagen;
+                
+                imgFondo.addEventListener("load", () => {
                     contenedorLienzo.classList.remove("hidden");
                     controlesPincel.classList.remove("hidden");
                     controlesEdicion.classList.remove("hidden");
@@ -321,15 +328,14 @@
                     ctx.lineJoin = "round";
                     ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
                     
-                    // Resetear el recorte al subir nueva foto
                     datosRecorte = null;
                     canvas.classList.remove("hidden");
-                };
+                }, { once: true }); // once: true evita que se repita el evento
             };
             reader.readAsDataURL(file);
         });
 
-        // 2. SISTEMA DE RECORTE MANUAL
+        // 2. SISTEMA DE RECORTE MANUAL EXPANSIVO
         const btnActivarRecorte = document.getElementById("btnActivarRecorte");
         const btnAplicarRecorte = document.getElementById("btnAplicarRecorte");
         const btnCancelarRecorte = document.getElementById("btnCancelarRecorte");
@@ -337,21 +343,36 @@
         btnActivarRecorte.addEventListener("click", () => {
             if (cropperInstance) return;
             
-            // Ocultamos la pizarra temporalmente para que no estorbe al recortar
             canvas.classList.add("hidden");
             controlesPincel.classList.add("hidden");
             
-            cropperInstance = new Cropper(imgFondo, {
-                viewMode: 0, 
-                autoCropArea: 0.9, 
-                background: false,
-                minContainerHeight: 350,
-                responsive: true
-            });
+            // 🔥 EL TRUCO: Creamos una imagen falsa un 100% más grande 🔥
+            const canvasFalso = document.createElement("canvas");
+            extraX = imgFondo.naturalWidth * 0.5; // 50% de espacio vacío a la izq y der
+            extraY = imgFondo.naturalHeight * 0.5; // 50% de espacio vacío arriba y abajo
             
-            btnActivarRecorte.classList.add("hidden");
-            btnAplicarRecorte.classList.remove("hidden");
-            btnCancelarRecorte.classList.remove("hidden");
+            canvasFalso.width = imgFondo.naturalWidth + (extraX * 2);
+            canvasFalso.height = imgFondo.naturalHeight + (extraY * 2);
+            
+            const ctxFalso = canvasFalso.getContext("2d");
+            ctxFalso.drawImage(imgFondo, extraX, extraY); // Dibujamos la original en el centro
+            
+            // Le damos la imagen gigante a Cropper
+            imgFondo.addEventListener("load", () => {
+                cropperInstance = new Cropper(imgFondo, {
+                    viewMode: 0, 
+                    autoCropArea: 0.5, // Para que el cuadro inicial no tape todo
+                    background: true,  // Se verá la cuadrícula donde no hay imagen
+                    minContainerHeight: 350,
+                    responsive: true
+                });
+                
+                btnActivarRecorte.classList.add("hidden");
+                btnAplicarRecorte.classList.remove("hidden");
+                btnCancelarRecorte.classList.remove("hidden");
+            }, { once: true });
+
+            imgFondo.src = canvasFalso.toDataURL("image/png");
         });
 
         btnCancelarRecorte.addEventListener("click", () => {
@@ -359,32 +380,48 @@
                 cropperInstance.destroy();
                 cropperInstance = null;
             }
-            // Devolvemos la pizarra
-            canvas.classList.remove("hidden");
-            controlesPincel.classList.remove("hidden");
             
-            btnActivarRecorte.classList.remove("hidden");
-            btnAplicarRecorte.classList.add("hidden");
-            btnCancelarRecorte.classList.add("hidden");
+            // Devolvemos la imagen original a la vista
+            imgFondo.addEventListener("load", () => {
+                canvas.classList.remove("hidden");
+                controlesPincel.classList.remove("hidden");
+                btnActivarRecorte.classList.remove("hidden");
+                btnAplicarRecorte.classList.add("hidden");
+                btnCancelarRecorte.classList.add("hidden");
+            }, { once: true });
+            
+            imgFondo.src = urlOriginalImagen;
         });
 
         btnAplicarRecorte.addEventListener("click", () => {
             if (!cropperInstance) return;
             
-            // Guardamos coordenadas pero NO cortamos la foto visualmente
-            datosRecorte = cropperInstance.getData(true);
+            // Capturamos las coordenadas del cuadro en la imagen gigante
+            const datosFalsos = cropperInstance.getData(true);
+            
+            // 🔥 LA MAGIA: Restamos el espacio extra para sacar las coordenadas negativas reales 🔥
+            datosRecorte = {
+                x: datosFalsos.x - extraX,
+                y: datosFalsos.y - extraY,
+                width: datosFalsos.width,
+                height: datosFalsos.height
+            };
             
             cropperInstance.destroy();
             cropperInstance = null;
             
-            // Devolvemos la pizarra intacta
-            canvas.classList.remove("hidden");
-            controlesPincel.classList.remove("hidden");
-            btnActivarRecorte.classList.remove("hidden");
-            btnAplicarRecorte.classList.add("hidden");
-            btnCancelarRecorte.classList.add("hidden");
+            // Restauramos la imagen original visualmente
+            imgFondo.addEventListener("load", () => {
+                canvas.classList.remove("hidden");
+                controlesPincel.classList.remove("hidden");
+                btnActivarRecorte.classList.remove("hidden");
+                btnAplicarRecorte.classList.add("hidden");
+                btnCancelarRecorte.classList.add("hidden");
+                
+                alert("✅ Coordenadas expansivas guardadas. ¡El servidor armará el nuevo tamaño!");
+            }, { once: true });
             
-            alert("✅ Coordenadas de expansión guardadas.");
+            imgFondo.src = urlOriginalImagen;
         });
 
         // 3. SISTEMA DE PINCEL (DIBUJO)

@@ -299,9 +299,37 @@
         
         let dibujando = false;
         let cropperInstance = null; 
-        let datosRecorte = null; // 🔥 NUEVA VARIABLE GLOBAL PARA GUARDAR LAS COORDENADAS 🔥
+        let datosRecorte = null; 
 
-        // --- SISTEMA DE RECORTE MANUAL ---
+        // 1. CARGAR IMAGEN Y PREPARAR PIZARRA
+        inputArchivo.addEventListener("change", (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                imgFondo.src = event.target.result;
+                imgFondo.onload = () => {
+                    contenedorLienzo.classList.remove("hidden");
+                    controlesPincel.classList.remove("hidden");
+                    controlesEdicion.classList.remove("hidden");
+                    
+                    canvas.width = imgFondo.naturalWidth;
+                    canvas.height = imgFondo.naturalHeight;
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.lineCap = "round";
+                    ctx.lineJoin = "round";
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+                    
+                    // Resetear el recorte al subir nueva foto
+                    datosRecorte = null;
+                    canvas.classList.remove("hidden");
+                };
+            };
+            reader.readAsDataURL(file);
+        });
+
+        // 2. SISTEMA DE RECORTE MANUAL
         const btnActivarRecorte = document.getElementById("btnActivarRecorte");
         const btnAplicarRecorte = document.getElementById("btnAplicarRecorte");
         const btnCancelarRecorte = document.getElementById("btnCancelarRecorte");
@@ -309,23 +337,12 @@
         btnActivarRecorte.addEventListener("click", () => {
             if (cropperInstance) return;
             
-        let dibujando = false;
-        let cropperInstance = null; 
-        let datosRecorte = null; // 🔥 NUEVA VARIABLE GLOBAL PARA GUARDAR LAS COORDENADAS 🔥
-
-        // --- SISTEMA DE RECORTE MANUAL ---
-        const btnActivarRecorte = document.getElementById("btnActivarRecorte");
-        const btnAplicarRecorte = document.getElementById("btnAplicarRecorte");
-        const btnCancelarRecorte = document.getElementById("btnCancelarRecorte");
-
-        btnActivarRecorte.addEventListener("click", () => {
-            if (cropperInstance) return;
-            
+            // Ocultamos la pizarra temporalmente para que no estorbe al recortar
             canvas.classList.add("hidden");
             controlesPincel.classList.add("hidden");
             
             cropperInstance = new Cropper(imgFondo, {
-                viewMode: 0, // 🔥 CLAVE: Permite salir del lienzo (antes era 1) 🔥
+                viewMode: 0, 
                 autoCropArea: 0.9, 
                 background: false,
                 minContainerHeight: 350,
@@ -342,6 +359,7 @@
                 cropperInstance.destroy();
                 cropperInstance = null;
             }
+            // Devolvemos la pizarra
             canvas.classList.remove("hidden");
             controlesPincel.classList.remove("hidden");
             
@@ -353,56 +371,28 @@
         btnAplicarRecorte.addEventListener("click", () => {
             if (!cropperInstance) return;
             
-            // 🔥 LA MAGIA: Solo capturamos los números exactos (true = redondeados), NO cortamos la foto 🔥
+            // Guardamos coordenadas pero NO cortamos la foto visualmente
             datosRecorte = cropperInstance.getData(true);
             
             cropperInstance.destroy();
             cropperInstance = null;
             
+            // Devolvemos la pizarra intacta
             canvas.classList.remove("hidden");
             controlesPincel.classList.remove("hidden");
             btnActivarRecorte.classList.remove("hidden");
             btnAplicarRecorte.classList.add("hidden");
             btnCancelarRecorte.classList.add("hidden");
             
-            alert("✅ Coordenadas guardadas. El servidor hará el recorte expansivo.");
-        });
-            
-            const canvasRecortado = cropperInstance.getCroppedCanvas();
-            cropperInstance.destroy();
-            cropperInstance = null;
-            
-            canvasRecortado.toBlob((blob) => {
-                const file = new File([blob], "recorte_manual.jpg", { type: "image/jpeg" });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                document.getElementById('archivo').files = dataTransfer.files;
-                
-                imgFondo.src = URL.createObjectURL(blob);
-                imgFondo.onload = () => {
-                    canvas.width = imgFondo.naturalWidth;
-                    canvas.height = imgFondo.naturalHeight;
-                    ctx.clearRect(0, 0, canvas.width, canvas.height); 
-                    ctx.lineCap = "round";
-                    ctx.lineJoin = "round";
-                    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-                }
-            }, "image/jpeg", 0.95);
-            
-            canvas.classList.remove("hidden");
-            controlesPincel.classList.remove("hidden");
-            btnActivarRecorte.classList.remove("hidden");
-            btnAplicarRecorte.classList.add("hidden");
-            btnCancelarRecorte.classList.add("hidden");
+            alert("✅ Coordenadas de expansión guardadas.");
         });
 
-        // --- SISTEMA DE PINCEL ---
+        // 3. SISTEMA DE PINCEL (DIBUJO)
         canvas.addEventListener("mousedown", (e) => { dibujando = true; pintar(e); });
         canvas.addEventListener("mouseup", () => { dibujando = false; ctx.beginPath(); });
         canvas.addEventListener("mousemove", pintar);
         canvas.addEventListener("mouseleave", () => { dibujando = false; ctx.beginPath(); });
         
-        // El {passive: false} arregla que la pantalla no tiemble al pintar en celular
         canvas.addEventListener("touchstart", (e) => { dibujando = true; pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
         canvas.addEventListener("touchend", () => { dibujando = false; ctx.beginPath(); });
         canvas.addEventListener("touchmove", (e) => { pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
@@ -415,7 +405,6 @@
             const x = (e.clientX - rect.left) * scaleX;
             const y = (e.clientY - rect.top) * scaleY;
 
-            // ¡MAGIA! Escala el grosor visual para que coincida con la resolución HD de la máscara
             ctx.lineWidth = grosorPincel.value * scaleX;
             ctx.lineTo(x, y);
             ctx.stroke();

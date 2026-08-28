@@ -169,12 +169,13 @@
 
         window.cargarImagenEnLienzo = async function(url) {
             try {
-                alert("Descargando imagen al panel, espera unos segundos...");
-                // PLAN A: Usamos un proxy más robusto para CORS
-                const proxyUrl = "https://corsproxy.io/?" + encodeURIComponent(url);
+                alert("Descargando imagen desde Drive, espera unos segundos...");
+                
+                // 🔥 NUEVO PROXY: Diseñado específicamente para saltar el bloqueo de Google Drive 🔥
+                const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
                 const response = await fetch(proxyUrl);
                 
-                if (!response.ok) throw new Error("Fallo en el proxy primario");
+                if (!response.ok) throw new Error("Fallo en la descarga segura");
                 
                 const blob = await response.blob();
                 const file = new File([blob], "imagen_cargada.jpg", { type: "image/jpeg" });
@@ -186,29 +187,8 @@
                 window.scrollTo({ top: 0, behavior: 'smooth' });
 
             } catch (error) {
-                console.warn("Fallo el Plan A, ejecutando Plan B (Canvas)...", error);
-                // PLAN B: Forzar la descarga dibujando en un Canvas invisible
-                const img = new Image();
-                img.crossOrigin = "Anonymous";
-                img.src = url; // Intentar directo
-                img.onload = () => {
-                    const canvas = document.createElement('canvas');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
-                    const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
-                    canvas.toBlob((blob) => {
-                        const file = new File([blob], "imagen_cargada.jpg", { type: "image/jpeg" });
-                        const dataTransfer = new DataTransfer();
-                        dataTransfer.items.add(file);
-                        document.getElementById('archivo').files = dataTransfer.files;
-                        document.getElementById('archivo').dispatchEvent(new Event('change'));
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }, 'image/jpeg');
-                };
-                img.onerror = () => {
-                     alert("Seguridad del navegador bloqueó la imagen. Por favor, descárgala a tu galería manualmente.");
-                };
+                console.error(error);
+                alert("Google Drive está tardando en procesar. Haz clic en la imagen para abrirla en otra pestaña, guárdala y súbela manualmente.");
             }
         };
 

@@ -147,8 +147,21 @@
         // ==========================================
         // FUNCIONES GLOBALES: ELIMINAR Y CARGAR 
         // ==========================================
-        window.eliminarTarea = function(id) {
-            if (confirm("¿Estás seguro de que quieres ocultar este trabajo?")) {
+        window.eliminarTarea = async function(id, driveId, driveIdMalla) {
+            if (confirm("¿Estás seguro de que quieres ocultar este trabajo y eliminar permanentemente las imágenes de tu Google Drive?")) {
+                const urlWebHook = localStorage.getItem('url_apps_script_cpu') || localStorage.getItem('url_apps_script_gpu');
+                
+                // 1. Enviar orden de destrucción a Drive (si existen)
+                if (urlWebHook) {
+                    if (driveId && driveId !== 'undefined') {
+                        fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveId }) });
+                    }
+                    if (driveIdMalla && driveIdMalla !== 'undefined') {
+                        fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveIdMalla }) });
+                    }
+                }
+
+                // 2. Borrar del historial visual
                 historialTareas = historialTareas.filter(t => t.id !== id);
                 guardarEnLocalStorage();
             }
@@ -236,7 +249,7 @@
                     htmlImg = `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
                     botonesAccion = `
                     <div class="flex gap-2 mt-3">
-                        <button onclick="eliminarTarea('${tarea.id}')" class="w-full bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow">🗑️ Eliminar</button>
+                       <button onclick="eliminarTarea('${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
                     </div>`;
                 }
 

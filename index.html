@@ -168,21 +168,16 @@
         };
 
         window.cargarImagenEnLienzo = async function(url) {
-            // Aviso visual sin bloquear la pantalla
             const txtEstado = document.getElementById("estado");
             txtEstado.innerText = "Transfiriendo imagen al panel...";
             txtEstado.classList.remove("hidden");
 
             try {
-                // INTENTO 1: Proxy primario
-                let response = await fetch("https://corsproxy.io/?" + encodeURIComponent(url));
+                // EL TRUCO DEFINITIVO: Un proxy especializado en imágenes que elimina los escudos CORS de Google
+                const proxyUrl = "https://wsrv.nl/?url=" + encodeURIComponent(url) + "&output=jpg";
+                const response = await fetch(proxyUrl);
                 
-                if (!response.ok) {
-                    // INTENTO 2: Proxy secundario (AllOrigins)
-                    response = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(url));
-                }
-
-                if (!response.ok) throw new Error("Los proxies fallaron");
+                if (!response.ok) throw new Error("Fallo en la transferencia");
 
                 const blob = await response.blob();
                 const file = new File([blob], "imagen_editada.jpg", { type: "image/jpeg" });
@@ -195,37 +190,10 @@
                 window.scrollTo({ top: 0, behavior: 'smooth' });
 
             } catch (error) {
-                console.warn("Fallo el modo web, activando extracción por memoria RAM...", error);
-                
-                // INTENTO 3: Extracción pura por Canvas en la memoria del navegador
-                const img = new Image();
-                img.crossOrigin = "Anonymous";
-                img.onload = () => {
-                    const canvasTemp = document.createElement('canvas');
-                    canvasTemp.width = img.width;
-                    canvasTemp.height = img.height;
-                    const ctxTemp = canvasTemp.getContext('2d');
-                    ctxTemp.drawImage(img, 0, 0);
-                    
-                    canvasTemp.toBlob((blob) => {
-                        const file = new File([blob], "imagen_editada.jpg", { type: "image/jpeg" });
-                        const dataTransfer = new DataTransfer();
-                        dataTransfer.items.add(file);
-                        document.getElementById('archivo').files = dataTransfer.files;
-                        document.getElementById('archivo').dispatchEvent(new Event('change'));
-                        
-                        window.scrollTo({ top: 0, behavior: 'smooth' });
-                    }, 'image/jpeg');
-                };
-                
-                img.onerror = () => {
-                    alert("Tu navegador es extremadamente estricto. Haz clic en la foto, guárdala en tu galería y súbela manualmente.");
-                };
-                
-                img.src = url; // Inicia la extracción
-                
+                console.error(error);
+                alert("Drive bloqueó la red. Por favor, mantén presionada la imagen, guárdala y súbela desde tu galería.");
             } finally {
-                setTimeout(() => txtEstado.classList.add("hidden"), 2000);
+                txtEstado.classList.add("hidden");
             }
         };
 

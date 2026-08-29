@@ -168,27 +168,64 @@
         };
 
         window.cargarImagenEnLienzo = async function(url) {
+            // Aviso visual sin bloquear la pantalla
+            const txtEstado = document.getElementById("estado");
+            txtEstado.innerText = "Transfiriendo imagen al panel...";
+            txtEstado.classList.remove("hidden");
+
             try {
-                alert("Descargando imagen desde Drive, espera unos segundos...");
+                // INTENTO 1: Proxy primario
+                let response = await fetch("https://corsproxy.io/?" + encodeURIComponent(url));
                 
-                // 🔥 NUEVO PROXY: Diseñado específicamente para saltar el bloqueo de Google Drive 🔥
-                const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(url);
-                const response = await fetch(proxyUrl);
-                
-                if (!response.ok) throw new Error("Fallo en la descarga segura");
-                
+                if (!response.ok) {
+                    // INTENTO 2: Proxy secundario (AllOrigins)
+                    response = await fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(url));
+                }
+
+                if (!response.ok) throw new Error("Los proxies fallaron");
+
                 const blob = await response.blob();
-                const file = new File([blob], "imagen_cargada.jpg", { type: "image/jpeg" });
-                
+                const file = new File([blob], "imagen_editada.jpg", { type: "image/jpeg" });
+
                 const dataTransfer = new DataTransfer();
                 dataTransfer.items.add(file);
                 document.getElementById('archivo').files = dataTransfer.files;
                 document.getElementById('archivo').dispatchEvent(new Event('change'));
+                
                 window.scrollTo({ top: 0, behavior: 'smooth' });
 
             } catch (error) {
-                console.error(error);
-                alert("Google Drive está tardando en procesar. Haz clic en la imagen para abrirla en otra pestaña, guárdala y súbela manualmente.");
+                console.warn("Fallo el modo web, activando extracción por memoria RAM...", error);
+                
+                // INTENTO 3: Extracción pura por Canvas en la memoria del navegador
+                const img = new Image();
+                img.crossOrigin = "Anonymous";
+                img.onload = () => {
+                    const canvasTemp = document.createElement('canvas');
+                    canvasTemp.width = img.width;
+                    canvasTemp.height = img.height;
+                    const ctxTemp = canvasTemp.getContext('2d');
+                    ctxTemp.drawImage(img, 0, 0);
+                    
+                    canvasTemp.toBlob((blob) => {
+                        const file = new File([blob], "imagen_editada.jpg", { type: "image/jpeg" });
+                        const dataTransfer = new DataTransfer();
+                        dataTransfer.items.add(file);
+                        document.getElementById('archivo').files = dataTransfer.files;
+                        document.getElementById('archivo').dispatchEvent(new Event('change'));
+                        
+                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }, 'image/jpeg');
+                };
+                
+                img.onerror = () => {
+                    alert("Tu navegador es extremadamente estricto. Haz clic en la foto, guárdala en tu galería y súbela manualmente.");
+                };
+                
+                img.src = url; // Inicia la extracción
+                
+            } finally {
+                setTimeout(() => txtEstado.classList.add("hidden"), 2000);
             }
         };
 

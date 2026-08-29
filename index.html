@@ -202,26 +202,33 @@
                 let botonesAccion = "";
 
                 if (tarea.estado === 'completado') {
+                    // 🔥 EL TRUCO: Usar la API de miniaturas de Google Drive para saltar bloqueos 🔥
+                    let imgId = tarea.urlResultado.split('id=')[1];
+                    let urlVisualizacion = `https://drive.google.com/thumbnail?id=${imgId}&sz=w1000`;
+
                     if (tarea.urlResultadoMalla) {
+                        let imgIdMalla = tarea.urlResultadoMalla.split('id=')[1];
+                        let urlVisualizacionMalla = `https://drive.google.com/thumbnail?id=${imgIdMalla}&sz=w1000`;
+                        
                         htmlImg = `
                         <div class="grid grid-cols-2 gap-2 mt-2">
                             <a href="${tarea.urlResultado}" target="_blank">
                                 <div class="text-[10px] text-center text-gray-400 mb-1">Corte Original</div>
-                                <img src="${tarea.urlResultado}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
+                                <img src="${urlVisualizacion}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
                             </a>
                             <a href="${tarea.urlResultadoMalla}" target="_blank">
                                 <div class="text-[10px] text-center text-gray-400 mb-1">Con Malla</div>
-                                <img src="${tarea.urlResultadoMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
+                                <img src="${urlVisualizacionMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
                             </a>
                         </div>`;
                     } else {
-                        htmlImg = `<a href="${tarea.urlResultado}" target="_blank"><img src="${tarea.urlResultado}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
+                        htmlImg = `<a href="${tarea.urlResultado}" target="_blank"><img src="${urlVisualizacion}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
                     }
                     
-                    // NUEVO: Botones de Acción (Cargar y Eliminar)
+                    // Al botón de cargar le pasamos la URL desbloqueada
                     botonesAccion = `
                     <div class="flex gap-2 mt-3">
-                        <button onclick="cargarImagenEnLienzo('${tarea.urlResultado}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
+                        <button onclick="cargarImagenEnLienzo('${urlVisualizacion}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
                         <button onclick="eliminarTarea('${tarea.id}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
                     </div>`;
 
@@ -229,7 +236,7 @@
                     htmlImg = `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
                     botonesAccion = `
                     <div class="flex gap-2 mt-3">
-                       <button onclick="eliminarTarea('${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
+                        <button onclick="eliminarTarea('${tarea.id}')" class="w-full bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow">🗑️ Eliminar</button>
                     </div>`;
                 }
 

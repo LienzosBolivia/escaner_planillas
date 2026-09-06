@@ -34,6 +34,13 @@
 
                 <input type="file" id="archivo-__SLOT__" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
 
+                <!-- Imagen de referencia del rostro original (solo para "Restaurar Rostro + Quitar Logo IA") -->
+                <div id="contenedorRostroRef-__SLOT__" class="hidden mb-4">
+                    <label class="block text-sm font-bold text-gray-300 mb-1">📸 Foto con el rostro ORIGINAL a mantener:</label>
+                    <input type="file" id="archivoRostro-__SLOT__" accept="image/*" class="w-full p-2 bg-gray-700 rounded cursor-pointer">
+                    <p class="text-[11px] text-gray-500 mt-1">Se recortará el rostro de esta foto y se pondrá en la imagen del panel. Además, pinta con el pincel de abajo sobre el logo de la IA (Gemini u otra) para borrarlo.</p>
+                </div>
+
                 <!-- Controles de Recorte Manual -->
                 <div id="controlesEdicion-__SLOT__" class="hidden flex gap-2 mb-4">
                     <button id="btnActivarRecorte-__SLOT__" class="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-sm py-2 rounded font-bold shadow transition">✂️ Recorte Manual</button>
@@ -61,6 +68,7 @@
                     <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
                     <option value="solo_recortar">✂️ Solo Quitar + Cambiar Fondo</option>
                     <option value="armonizar_color">🎨 Armonizar / Emparejar Color</option>
+                    <option value="restaurar_rostro_logo">🧑‍🎨 Restaurar Rostro Original + Quitar Logo IA</option>
                 </select>
 
                 <div class="mb-4 bg-gray-700 p-3 rounded">
@@ -654,6 +662,19 @@
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
             });
 
+            // -------- Mostrar/ocultar el selector de "rostro original" --------
+            const contenedorRostroRef = el("contenedorRostroRef", slot);
+            const selectComando = el("comando", slot);
+            function actualizarVisibilidadRostroRef() {
+                if (selectComando.value === "restaurar_rostro_logo") {
+                    contenedorRostroRef.classList.remove("hidden");
+                } else {
+                    contenedorRostroRef.classList.add("hidden");
+                }
+            }
+            selectComando.addEventListener("change", actualizarVisibilidadRostroRef);
+            actualizarVisibilidadRostroRef();
+
             function obtenerMascaraBlob() {
                 return new Promise(resolve => {
                     const maskCanvas = document.createElement("canvas");
@@ -679,6 +700,14 @@
                 });
             }
 
+            function hayAlgoPintado() {
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                for (let i = 3; i < imgData.data.length; i += 4) {
+                    if (imgData.data[i] > 0) return true;
+                }
+                return false;
+            }
+
             // -------- Envío de tareas (etiquetadas con el slot de esta pestaña) --------
             const btnEnviar = el("btnEnviar", slot);
             const txtEstado = el("estado", slot);
@@ -690,6 +719,10 @@
                 const mallaElegida = el("select-malla", slot).value;
 
                 if (!archivo) return alert("Sube una imagen primero");
+
+                if (comando === "restaurar_rostro_logo" && !el("archivoRostro", slot).files[0]) {
+                    return alert("Sube la foto con el rostro ORIGINAL que quieres mantener.");
+                }
 
                 btnEnviar.disabled = true;
                 btnEnviar.classList.replace("bg-blue-600", "bg-gray-600");
@@ -704,6 +737,7 @@
                     if (!dataOrig.success) throw new Error("Falló subida original ImgBB");
                     let urlOriginal = dataOrig.data.url;
                     let urlMascara = "";
+                    let urlRostroReferencia = "";
 
                     if (comando === "armonizar_color") {
                         txtEstado.innerText = "Subiendo máscara térmica...";
@@ -714,6 +748,29 @@
                         const dataMascara = await resMascara.json();
                         if (!dataMascara.success) throw new Error("Falló subida de máscara ImgBB");
                         urlMascara = dataMascara.data.url;
+                    }
+
+                    if (comando === "restaurar_rostro_logo") {
+                        txtEstado.innerText = "Subiendo foto de referencia del rostro...";
+                        const archivoRostro = el("archivoRostro", slot).files[0];
+                        const formRostro = new FormData();
+                        formRostro.append("image", archivoRostro);
+                        const resRostro = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formRostro });
+                        const dataRostro = await resRostro.json();
+                        if (!dataRostro.success) throw new Error("Falló subida de la foto de referencia ImgBB");
+                        urlRostroReferencia = dataRostro.data.url;
+
+                        // La máscara del logo es opcional: solo se sube si el usuario pintó algo con el pincel.
+                        if (hayAlgoPintado()) {
+                            txtEstado.innerText = "Subiendo máscara del logo a borrar...";
+                            const blobMascara = await obtenerMascaraBlob();
+                            const formMascara = new FormData();
+                            formMascara.append("image", blobMascara, "mascara.png");
+                            const resMascara = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formMascara });
+                            const dataMascara = await resMascara.json();
+                            if (!dataMascara.success) throw new Error("Falló subida de máscara ImgBB");
+                            urlMascara = dataMascara.data.url;
+                        }
                     }
 
                     if (comando === "recorte_manual" && !estado[slot].datosRecorte) {
@@ -730,6 +787,7 @@
                         malla_id: mallaElegida,
                         url_imagen: urlOriginal,
                         url_mascara: urlMascara,
+                        url_imagen_rostro: urlRostroReferencia,
                         crop_x: estado[slot].datosRecorte ? estado[slot].datosRecorte.x : 0,
                         crop_y: estado[slot].datosRecorte ? estado[slot].datosRecorte.y : 0,
                         crop_w: estado[slot].datosRecorte ? estado[slot].datosRecorte.width : 0,

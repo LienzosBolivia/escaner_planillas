@@ -282,7 +282,7 @@
             }
 
             try {
-                fetch(urlWebHook + "?tipo=cpu", { mode: 'no-cors' });
+                fetch(urlWebHook + "?tipo=cpu&slot=" + slot, { mode: 'no-cors' });
 
                 // Deja de escuchar un progreso anterior si existía
                 if (estado[slot].unsubServidor) estado[slot].unsubServidor();
@@ -680,7 +680,7 @@
 
             el("btnConfigurarURLs", slot).addEventListener("click", () => {
                 const actualCPU = localStorage.getItem(`url_apps_script_cpu_${slot}`) || "";
-                const nuevaCPU = prompt(`Pega la URL de Apps Script para encender la CPU de la Pestaña ${slot}:`, actualCPU);
+                const nuevaCPU = prompt(`Pega la URL de Apps Script (puede ser LA MISMA para las 5 pestañas, el sistema envía el número de slot automáticamente):`, actualCPU);
                 if (nuevaCPU !== null) localStorage.setItem(`url_apps_script_cpu_${slot}`, nuevaCPU.trim());
                 alert(`✅ URL guardada de forma segura en este navegador para la Pestaña ${slot}.`);
             });

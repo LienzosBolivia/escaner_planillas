@@ -5,124 +5,139 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Panel IA - Laboratorio Profesional</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    
+
     <!-- Librería profesional para recortes (Cropper.js) -->
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 </head>
 <body class="bg-gray-900 text-white min-h-screen p-4 md:p-8 flex flex-col items-center">
 
-    <div class="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-6">
-        
-        <!-- COLUMNA IZQUIERDA: CONTROLES Y LIENZO -->
-        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl">
-            <h1 class="text-2xl font-bold mb-6 text-blue-400">⚡ Nueva Tarea IA</h1>
-            
-            <input type="file" id="archivo" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
-            
-            <!-- Controles de Recorte Manual -->
-            <div id="controlesEdicion" class="hidden flex gap-2 mb-4">
-                <button id="btnActivarRecorte" class="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-sm py-2 rounded font-bold shadow transition">✂️ Recorte Manual</button>
-                <button id="btnAplicarRecorte" class="hidden flex-1 bg-green-600 hover:bg-green-500 text-white text-sm py-2 rounded font-bold shadow transition">✅ Aplicar Recorte</button>
-                <button id="btnCancelarRecorte" class="hidden bg-red-600 hover:bg-red-500 text-white text-sm px-4 py-2 rounded font-bold shadow transition">❌</button>
-            </div>
-
-            <!-- EL LIENZO DE DIBUJO -->
-            <div id="contenedorLienzo" class="relative hidden mb-4 border-2 border-dashed border-gray-500 rounded bg-gray-900 overflow-hidden">
-                <img id="imgFondo" class="w-full h-auto block" src="">
-                <canvas id="lienzoDibujo" class="absolute top-0 left-0 w-full h-full cursor-crosshair"></canvas>
-            </div>
-                  
-            <div id="controlesPincel" class="hidden mb-4 bg-gray-700 p-3 rounded flex justify-between items-center">
-                <span class="text-sm font-bold text-gray-300">Grosor Pincel:</span>
-                <input type="range" id="grosorPincel" min="5" max="50" value="20" class="w-1/2 mx-2">
-                <button id="btnLimpiar" class="bg-red-500 hover:bg-red-600 text-xs px-3 py-1 rounded font-bold shadow">Limpiar</button>
-            </div>
-
-            <label class="block text-sm font-bold text-gray-300 mb-1">Acción a realizar:</label>
-            <select id="comando" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
-                <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
-                <option value="solo_encuadre">🎯 Solo Encuadre Automático</option>
-                <option value="recorte_manual">📐 Recorte Manual Expansivo</option>
-                <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
-                <option value="solo_recortar">✂️ Solo Quitar + Cambiar Fondo</option>
-                <option value="armonizar_color">🎨 Armonizar / Emparejar Color</option>
-            </select>
-            
-            <div class="mb-4 bg-gray-700 p-3 rounded">
-                <label class="block text-sm font-bold text-gray-300 mb-2">Tamaño de Impresión (cm):</label>
-                <select id="select-dimension" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
-                    <option value="original">Mantener Original</option>
-                    <option value="16x22">16 x 22 cm</option>
-                    <option value="20x27">20 x 27 cm</option>
-                    <option value="30x42">30 x 42 cm</option>
-                    <option value="40x50">40 x 50 cm</option>
-                    <option value="50x60">50 x 60 cm</option>
-                </select>
-            </div>
-
-            <div class="mb-4 bg-gray-700 p-3 rounded">
-                <label class="block text-sm font-bold text-gray-300 mb-2">Malla de Misión:</label>
-                <select id="select-malla" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
-                    <option value="0">Ninguna (Sin malla)</option>
-                    <option value="1">Malla Misión 1</option>
-                    <option value="2">Malla Misión 2</option>
-                    <option value="3">Malla Misión 3</option>
-                </select>
-            </div>
-
-            <div class="mb-4 bg-gray-700 p-3 rounded">
-                <label class="block text-sm font-bold text-gray-300 mb-2">Fondo Nº (0 = Transparente):</label>
-                <input type="number" id="fondoIA" min="0" max="25" value="0" class="w-full p-2 bg-gray-600 rounded text-white font-bold text-center">
-            </div>
-            
-            <div class="mb-6 bg-gray-700 p-3 rounded">
-                <label class="block text-sm font-bold text-gray-300 mb-2">
-                    Nivel / Fuerza (Armonización y Restauración): <span id="valorFidelidad" class="text-blue-400">0.7</span>
-                </label>
-                <input type="range" id="fidelidadIA" min="0.1" max="1.0" step="0.1" value="0.7" class="w-full cursor-pointer">
-            </div>
-
-            <button id="btnEnviar" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg">
-                Enviar Tarea a Servidor
-            </button>
-            
-            <div id="estado" class="mt-4 text-center font-bold text-yellow-400 hidden">Iniciando...</div>
-
-            <!-- PANEL DE ENERGÍA DEL SERVIDOR (Fuera del botón) -->
-            <div class="mt-8 border-t border-gray-600 pt-4">
-                <div class="flex justify-between items-center mb-3">
-                    <h3 class="text-sm font-bold text-gray-400">Gestión del Servidor</h3>
-                    <button id="btnConfigurarURLs" class="text-gray-400 hover:text-white text-xs underline transition">⚙️ Configurar URL</button>
-                </div>
-                
-                <div class="flex flex-col gap-3">
-                    <!-- Botones Principales -->
-                    <div class="flex justify-between gap-2" id="botonesControl">
-                        <button onclick="prenderServidor('cpu')" class="w-full bg-green-900 hover:bg-green-800 text-xs text-white py-2 rounded font-bold shadow transition">🟢 Iniciar Servidor (Kaggle CPU)</button>
-                        <button onclick="apagarServidor()" class="w-24 bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow transition">🔴 Apagar</button>
-                    </div>
-
-                    <!-- Barra de Carga Oculta -->
-                    <div id="contenedorCarga" class="hidden w-full flex-col items-center bg-gray-800 p-3 rounded border border-gray-600 shadow-inner">
-                        <div class="flex justify-between w-full mb-1">
-                            <span id="textoCarga" class="text-xs text-blue-400 font-bold animate-pulse">Conectando con Kaggle...</span>
-                            <span id="porcentajeCarga" class="text-xs text-gray-300 font-bold">0%</span>
-                        </div>
-                        <div class="w-full bg-gray-900 rounded-full h-3">
-                            <div id="barraCarga" class="bg-blue-500 h-3 rounded-full transition-all duration-1000 ease-out" style="width: 0%"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- COLUMNA DERECHA: HISTORIAL PERSISTENTE -->
-        <div class="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col h-[850px]">
-            <h2 class="text-xl font-bold mb-4 text-green-400">📂 Historial de Trabajos</h2>
-            <div id="contenedorHistorial" class="overflow-y-auto flex-1 pr-2 space-y-4"></div>
-        </div>
+    <!-- ========================================================== -->
+    <!-- BARRA DE PESTAÑAS (5 servidores/paneles independientes)    -->
+    <!-- ========================================================== -->
+    <div class="w-full max-w-5xl mb-4">
+        <div id="barraPestañas" class="flex gap-1 bg-gray-800 p-1 rounded-xl shadow-lg overflow-x-auto"></div>
     </div>
+
+    <div id="panelesContenedor" class="w-full max-w-5xl"></div>
+
+    <!-- ========================================================== -->
+    <!-- PLANTILLA DE UN PANEL (se clona 5 veces, una por pestaña)   -->
+    <!-- ========================================================== -->
+    <template id="plantillaPanel">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <!-- COLUMNA IZQUIERDA: CONTROLES Y LIENZO -->
+            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl">
+                <h1 class="text-2xl font-bold mb-1 text-blue-400">⚡ Nueva Tarea IA</h1>
+                <p class="text-xs text-gray-500 mb-5">Pestaña __SLOT__ · servidor y cola independientes</p>
+
+                <input type="file" id="archivo-__SLOT__" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
+
+                <!-- Controles de Recorte Manual -->
+                <div id="controlesEdicion-__SLOT__" class="hidden flex gap-2 mb-4">
+                    <button id="btnActivarRecorte-__SLOT__" class="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-sm py-2 rounded font-bold shadow transition">✂️ Recorte Manual</button>
+                    <button id="btnAplicarRecorte-__SLOT__" class="hidden flex-1 bg-green-600 hover:bg-green-500 text-white text-sm py-2 rounded font-bold shadow transition">✅ Aplicar Recorte</button>
+                    <button id="btnCancelarRecorte-__SLOT__" class="hidden bg-red-600 hover:bg-red-500 text-white text-sm px-4 py-2 rounded font-bold shadow transition">❌</button>
+                </div>
+
+                <!-- EL LIENZO DE DIBUJO -->
+                <div id="contenedorLienzo-__SLOT__" class="relative hidden mb-4 border-2 border-dashed border-gray-500 rounded bg-gray-900 overflow-hidden">
+                    <img id="imgFondo-__SLOT__" class="w-full h-auto block" src="">
+                    <canvas id="lienzoDibujo-__SLOT__" class="absolute top-0 left-0 w-full h-full cursor-crosshair"></canvas>
+                </div>
+
+                <div id="controlesPincel-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded flex justify-between items-center">
+                    <span class="text-sm font-bold text-gray-300">Grosor Pincel:</span>
+                    <input type="range" id="grosorPincel-__SLOT__" min="5" max="50" value="20" class="w-1/2 mx-2">
+                    <button id="btnLimpiar-__SLOT__" class="bg-red-500 hover:bg-red-600 text-xs px-3 py-1 rounded font-bold shadow">Limpiar</button>
+                </div>
+
+                <label class="block text-sm font-bold text-gray-300 mb-1">Acción a realizar:</label>
+                <select id="comando-__SLOT__" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
+                    <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
+                    <option value="solo_encuadre">🎯 Solo Encuadre Automático</option>
+                    <option value="recorte_manual">📐 Recorte Manual Expansivo</option>
+                    <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
+                    <option value="solo_recortar">✂️ Solo Quitar + Cambiar Fondo</option>
+                    <option value="armonizar_color">🎨 Armonizar / Emparejar Color</option>
+                </select>
+
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+                    <label class="block text-sm font-bold text-gray-300 mb-2">Tamaño de Impresión (cm):</label>
+                    <select id="select-dimension-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
+                        <option value="original">Mantener Original</option>
+                        <option value="16x22">16 x 22 cm</option>
+                        <option value="20x27">20 x 27 cm</option>
+                        <option value="30x42">30 x 42 cm</option>
+                        <option value="40x50">40 x 50 cm</option>
+                        <option value="50x60">50 x 60 cm</option>
+                    </select>
+                </div>
+
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+                    <label class="block text-sm font-bold text-gray-300 mb-2">Malla de Misión:</label>
+                    <select id="select-malla-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
+                        <option value="0">Ninguna (Sin malla)</option>
+                        <option value="1">Malla Misión 1</option>
+                        <option value="2">Malla Misión 2</option>
+                        <option value="3">Malla Misión 3</option>
+                    </select>
+                </div>
+
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+                    <label class="block text-sm font-bold text-gray-300 mb-2">Fondo Nº (0 = Transparente):</label>
+                    <input type="number" id="fondoIA-__SLOT__" min="0" max="25" value="0" class="w-full p-2 bg-gray-600 rounded text-white font-bold text-center">
+                </div>
+
+                <div class="mb-6 bg-gray-700 p-3 rounded">
+                    <label class="block text-sm font-bold text-gray-300 mb-2">
+                        Nivel / Fuerza (Armonización y Restauración): <span id="valorFidelidad-__SLOT__" class="text-blue-400">0.7</span>
+                    </label>
+                    <input type="range" id="fidelidadIA-__SLOT__" min="0.1" max="1.0" step="0.1" value="0.7" class="w-full cursor-pointer">
+                </div>
+
+                <button id="btnEnviar-__SLOT__" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg">
+                    Enviar Tarea al Servidor de la Pestaña __SLOT__
+                </button>
+
+                <div id="estado-__SLOT__" class="mt-4 text-center font-bold text-yellow-400 hidden">Iniciando...</div>
+
+                <!-- PANEL DE ENERGÍA DEL SERVIDOR (Fuera del botón) -->
+                <div class="mt-8 border-t border-gray-600 pt-4">
+                    <div class="flex justify-between items-center mb-3">
+                        <h3 class="text-sm font-bold text-gray-400">Gestión del Servidor · Pestaña __SLOT__</h3>
+                        <button id="btnConfigurarURLs-__SLOT__" class="text-gray-400 hover:text-white text-xs underline transition">⚙️ Configurar URL</button>
+                    </div>
+
+                    <div class="flex flex-col gap-3">
+                        <!-- Botones Principales -->
+                        <div class="flex justify-between gap-2">
+                            <button id="btnPrender-__SLOT__" class="w-full bg-green-900 hover:bg-green-800 text-xs text-white py-2 rounded font-bold shadow transition">🟢 Iniciar Servidor (Kaggle CPU)</button>
+                            <button id="btnApagar-__SLOT__" class="w-24 bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow transition">🔴 Apagar</button>
+                        </div>
+
+                        <!-- Barra de Carga (progreso REAL reportado por los logs del notebook de Kaggle) -->
+                        <div id="contenedorCarga-__SLOT__" class="hidden w-full flex-col items-center bg-gray-800 p-3 rounded border border-gray-600 shadow-inner">
+                            <div class="flex justify-between w-full mb-1">
+                                <span id="textoCarga-__SLOT__" class="text-xs text-blue-400 font-bold animate-pulse">Conectando con Kaggle...</span>
+                                <span id="porcentajeCarga-__SLOT__" class="text-xs text-gray-300 font-bold">0%</span>
+                            </div>
+                            <div class="w-full bg-gray-900 rounded-full h-3">
+                                <div id="barraCarga-__SLOT__" class="bg-blue-500 h-3 rounded-full transition-all duration-700 ease-out" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- COLUMNA DERECHA: HISTORIAL PERSISTENTE (independiente por pestaña) -->
+            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col h-[850px]">
+                <h2 class="text-xl font-bold mb-4 text-green-400">📂 Historial de Trabajos · Pestaña __SLOT__</h2>
+                <div id="contenedorHistorial-__SLOT__" class="overflow-y-auto flex-1 pr-2 space-y-4"></div>
+            </div>
+        </div>
+    </template>
 
     <!-- Scripts de Firebase y Lógica -->
     <script type="module">
@@ -140,31 +155,81 @@
         const db = getFirestore(app);
         const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0";
 
-        let historialTareas = JSON.parse(localStorage.getItem('tareasIA')) || [];
-        let temporizadorCarga;
+        const SLOTS = [1, 2, 3, 4, 5];
 
-        function guardarEnLocalStorage() {
-            localStorage.setItem('tareasIA', JSON.stringify(historialTareas));
-            renderizarHistorial();
+        // Estado independiente por cada pestaña/slot
+        const estado = {};
+        SLOTS.forEach(s => {
+            estado[s] = {
+                historialTareas: JSON.parse(localStorage.getItem(`tareasIA_${s}`)) || [],
+                cropperInstance: null,
+                datosRecorte: null,
+                urlOriginalImagen: "",
+                extraX: 0,
+                extraY: 0,
+                dibujando: false,
+                unsubServidor: null
+            };
+        });
+
+        function el(id, slot) { return document.getElementById(`${id}-${slot}`); }
+
+        // ==========================================
+        // 1. CONSTRUIR LAS 5 PESTAÑAS Y SUS PANELES
+        // ==========================================
+        const barraPestañas = document.getElementById("barraPestañas");
+        const panelesContenedor = document.getElementById("panelesContenedor");
+        const plantilla = document.getElementById("plantillaPanel").innerHTML;
+
+        SLOTS.forEach(slot => {
+            // Botón de pestaña
+            const btnTab = document.createElement("button");
+            btnTab.id = `tab-${slot}`;
+            btnTab.className = "flex-1 min-w-[90px] py-2 rounded-lg text-sm font-bold transition-colors " +
+                (slot === 1 ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600");
+            btnTab.textContent = `Pestaña ${slot}`;
+            btnTab.addEventListener("click", () => cambiarPestaña(slot));
+            barraPestañas.appendChild(btnTab);
+
+            // Panel clonado desde la plantilla
+            const panel = document.createElement("div");
+            panel.id = `panel-${slot}`;
+            panel.className = slot === 1 ? "" : "hidden";
+            panel.innerHTML = plantilla.replaceAll("__SLOT__", slot);
+            panelesContenedor.appendChild(panel);
+        });
+
+        window.cambiarPestaña = function(slot) {
+            SLOTS.forEach(s => {
+                document.getElementById(`panel-${s}`).classList.toggle("hidden", s !== slot);
+                const tab = document.getElementById(`tab-${s}`);
+                tab.className = "flex-1 min-w-[90px] py-2 rounded-lg text-sm font-bold transition-colors " +
+                    (s === slot ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600");
+            });
+        };
+
+        // ==========================================
+        // 2. PERSISTENCIA Y RENDER DE HISTORIAL (por slot)
+        // ==========================================
+        function guardarEnLocalStorage(slot) {
+            localStorage.setItem(`tareasIA_${slot}`, JSON.stringify(estado[slot].historialTareas));
+            renderizarHistorial(slot);
         }
 
-        // ==========================================
-        // FUNCIONES GLOBALES: ELIMINAR, CARGAR Y ENERGÍA
-        // ==========================================
-        window.eliminarTarea = async function(id, driveId, driveIdMalla) {
+        window.eliminarTarea = async function(slot, id, driveId, driveIdMalla) {
             if (confirm("¿Estás seguro de que quieres ocultar este trabajo y eliminar permanentemente las imágenes de tu Google Drive?")) {
-                const urlWebHook = localStorage.getItem('url_apps_script_cpu');
+                const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
                 if (urlWebHook) {
                     if (driveId && driveId !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveId }) });
                     if (driveIdMalla && driveIdMalla !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveIdMalla }) });
                 }
-                historialTareas = historialTareas.filter(t => t.id !== id);
-                guardarEnLocalStorage();
+                estado[slot].historialTareas = estado[slot].historialTareas.filter(t => t.id !== id);
+                guardarEnLocalStorage(slot);
             }
         };
 
-        window.cargarImagenEnLienzo = async function(url) {
-            const txtEstado = document.getElementById("estado");
+        window.cargarImagenEnLienzo = async function(slot, url) {
+            const txtEstado = el("estado", slot);
             txtEstado.innerText = "Transfiriendo imagen al panel...";
             txtEstado.classList.remove("hidden");
             try {
@@ -175,8 +240,8 @@
                 const file = new File([blob], "imagen_editada.jpg", { type: "image/jpeg" });
                 const dataTransfer = new DataTransfer();
                 dataTransfer.items.add(file);
-                document.getElementById('archivo').files = dataTransfer.files;
-                document.getElementById('archivo').dispatchEvent(new Event('change'));
+                el("archivo", slot).files = dataTransfer.files;
+                el("archivo", slot).dispatchEvent(new Event('change'));
                 window.scrollTo({ top: 0, behavior: 'smooth' });
             } catch (error) {
                 alert("Drive bloqueó la red. Por favor, mantén presionada la imagen, guárdala y súbela desde tu galería.");
@@ -185,54 +250,74 @@
             }
         };
 
-        window.prenderServidor = async function(tipo) {
-            const btnArrancar = document.querySelector('button[onclick="prenderServidor(\'cpu\')"]');
+        // ==========================================
+        // 3. ENCENDIDO/APAGADO DE SERVIDOR + PROGRESO REAL
+        //    El progreso se lee en vivo desde Firestore:
+        //    servidores/slot_{n}, documento que el propio
+        //    notebook de Kaggle actualiza en cada paso de sus logs.
+        // ==========================================
+        window.prenderServidor = async function(slot) {
+            const btnArrancar = el("btnPrender", slot);
             btnArrancar.disabled = true;
             btnArrancar.classList.add('opacity-50', 'cursor-not-allowed');
-            
-            const contenedorCarga = document.getElementById("contenedorCarga");
-            const barraCarga = document.getElementById("barraCarga");
-            const porcentajeCarga = document.getElementById("porcentajeCarga");
-            const textoCarga = document.getElementById("textoCarga");
-            
+
+            const contenedorCarga = el("contenedorCarga", slot);
+            const barraCarga = el("barraCarga", slot);
+            const porcentajeCarga = el("porcentajeCarga", slot);
+            const textoCarga = el("textoCarga", slot);
+
             contenedorCarga.classList.remove("hidden");
             barraCarga.style.width = "0%";
             porcentajeCarga.innerText = "0%";
             textoCarga.innerText = "Conectando con Kaggle...";
             textoCarga.classList.add("animate-pulse", "text-blue-400");
-            textoCarga.classList.remove("text-green-400");
+            textoCarga.classList.remove("text-green-400", "text-red-400");
 
-            const urlWebHook = localStorage.getItem('url_apps_script_cpu');
-            if (!urlWebHook) { alert("Configura la URL de Apps Script primero en '⚙️ Configurar URL'."); btnArrancar.disabled = false; btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed'); return; }
+            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+            if (!urlWebHook) {
+                alert(`Configura la URL de Apps Script de la Pestaña ${slot} primero en '⚙️ Configurar URL'.`);
+                btnArrancar.disabled = false;
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+                return;
+            }
 
             try {
                 fetch(urlWebHook + "?tipo=cpu", { mode: 'no-cors' });
-                let progreso = 0;
-                clearInterval(temporizadorCarga);
-                
-                temporizadorCarga = setInterval(() => {
-                    if (progreso < 95) {
-                        let incremento = progreso < 50 ? 2 : (progreso < 80 ? 1 : 0.5);
-                        progreso += incremento;
-                        barraCarga.style.width = `${Math.floor(progreso)}%`;
-                        porcentajeCarga.innerText = `${Math.floor(progreso)}%`;
-                        
-                        if (progreso > 20) textoCarga.innerText = "Instalando CodeFormer y librerías ligeras...";
-                        if (progreso > 60) textoCarga.innerText = "Preparando modelos de extracción de IA...";
-                        if (progreso > 85) textoCarga.innerText = "Iniciando servidor de escucha...";
-                    }
-                }, 1200);
 
-                setTimeout(() => {
-                    clearInterval(temporizadorCarga);
-                    barraCarga.style.width = "100%";
-                    porcentajeCarga.innerText = "100%";
-                    textoCarga.innerText = "✅ Servidor listo y a la escucha";
-                    textoCarga.classList.remove("animate-pulse", "text-blue-400");
-                    textoCarga.classList.add("text-green-400");
-                    btnArrancar.disabled = false;
-                    btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
-                }, 140000); 
+                // Deja de escuchar un progreso anterior si existía
+                if (estado[slot].unsubServidor) estado[slot].unsubServidor();
+
+                // Escucha en tiempo real el documento que ESTE notebook de Kaggle
+                // (el que corresponde a este slot) va actualizando desde sus propios logs.
+                estado[slot].unsubServidor = onSnapshot(doc(db, "servidores", `slot_${slot}`), (snap) => {
+                    if (!snap.exists()) return;
+                    const datos = snap.data();
+                    const progreso = Math.max(0, Math.min(100, Number(datos.progreso) || 0));
+                    barraCarga.style.width = `${progreso}%`;
+                    porcentajeCarga.innerText = `${progreso}%`;
+                    if (datos.mensaje) textoCarga.innerText = datos.mensaje;
+
+                    if (datos.estado === 'escuchando') {
+                        textoCarga.classList.remove("animate-pulse", "text-blue-400", "text-red-400");
+                        textoCarga.classList.add("text-green-400");
+                        btnArrancar.disabled = false;
+                        btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+                    } else if (datos.estado === 'error') {
+                        textoCarga.classList.remove("animate-pulse", "text-blue-400", "text-green-400");
+                        textoCarga.classList.add("text-red-400");
+                        btnArrancar.disabled = false;
+                        btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+                    } else if (datos.estado === 'apagado') {
+                        textoCarga.classList.remove("animate-pulse", "text-green-400", "text-red-400");
+                        textoCarga.classList.add("text-gray-400");
+                        btnArrancar.disabled = false;
+                        btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+                    } else {
+                        // iniciando / procesando: sigue mostrando el pulso azul con el progreso real
+                        textoCarga.classList.add("animate-pulse", "text-blue-400");
+                        textoCarga.classList.remove("text-green-400", "text-red-400");
+                    }
+                });
             } catch (error) {
                 textoCarga.innerText = "❌ Error de conexión";
                 btnArrancar.disabled = false;
@@ -240,20 +325,23 @@
             }
         };
 
-        window.apagarServidor = async function() {
-            if(!confirm("¿Seguro que quieres enviar la señal para apagar el servidor?")) return;
+        window.apagarServidor = async function(slot) {
+            if (!confirm(`¿Seguro que quieres apagar el servidor de la Pestaña ${slot}?`)) return;
             try {
-                await addDoc(collection(db, "tareas_ia"), { estado: "pendiente", comando: "apagar_servidor", fecha: new Date().toISOString() });
-                alert("Orden de apagado encolada. El servidor se detendrá pronto.");
+                await addDoc(collection(db, "tareas_ia"), { estado: "pendiente", comando: "apagar_servidor", slot: String(slot), fecha: new Date().toISOString() });
+                alert(`Orden de apagado encolada para la Pestaña ${slot}. El servidor se detendrá pronto.`);
             } catch (error) {
                 alert("Error enviando orden de apagado.");
             }
         };
 
-        function renderizarHistorial() {
-            const contenedor = document.getElementById("contenedorHistorial");
-            contenedor.innerHTML = ""; 
-            historialTareas.forEach(tarea => {
+        // ==========================================
+        // 4. HISTORIAL (independiente por slot)
+        // ==========================================
+        function renderizarHistorial(slot) {
+            const contenedor = el("contenedorHistorial", slot);
+            contenedor.innerHTML = "";
+            estado[slot].historialTareas.forEach(tarea => {
                 let colorEstado = tarea.estado === 'completado' ? 'text-green-400' : (tarea.estado === 'error' ? 'text-red-500' : 'text-yellow-400');
                 let htmlImg = "";
                 let botonesAccion = "";
@@ -282,15 +370,15 @@
                         }
                         botonesAccion = `
                         <div class="flex gap-2 mt-3">
-                            <button onclick="cargarImagenEnLienzo('${urlVisualizacion}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
-                            <button onclick="eliminarTarea('${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
+                            <button onclick="cargarImagenEnLienzo(${slot}, '${urlVisualizacion}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
+                            <button onclick="eliminarTarea(${slot}, '${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
                         </div>`;
                     }
                 } else {
                     htmlImg = `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
                     botonesAccion = `
                     <div class="flex gap-2 mt-3">
-                        <button onclick="eliminarTarea('${tarea.id}')" class="w-full bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow">🗑️ Eliminar</button>
+                        <button onclick="eliminarTarea(${slot}, '${tarea.id}')" class="w-full bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow">🗑️ Eliminar</button>
                     </div>`;
                 }
 
@@ -310,295 +398,295 @@
             });
         }
 
-        function reconectarPendientes() {
-            historialTareas.forEach((tarea, index) => {
+        function reconectarPendientes(slot) {
+            estado[slot].historialTareas.forEach((tarea, index) => {
                 if (tarea.estado === 'pendiente' || tarea.estado === 'procesando') {
                     const unsubscribe = onSnapshot(doc(db, "tareas_ia", tarea.id), (documento) => {
                         const datos = documento.data();
                         if (datos && (datos.estado === "completado" || datos.estado === "error")) {
-                            historialTareas[index].estado = datos.estado;
+                            estado[slot].historialTareas[index].estado = datos.estado;
                             if (datos.estado === "completado") {
-                                historialTareas[index].urlResultado = datos.url_resultado;
-                                historialTareas[index].driveId = datos.drive_id;
+                                estado[slot].historialTareas[index].urlResultado = datos.url_resultado;
+                                estado[slot].historialTareas[index].driveId = datos.drive_id;
                                 if (datos.url_resultado_malla) {
-                                    historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
-                                    historialTareas[index].driveIdMalla = datos.drive_id_malla;
+                                    estado[slot].historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
+                                    estado[slot].historialTareas[index].driveIdMalla = datos.drive_id_malla;
                                 }
                             }
-                            guardarEnLocalStorage();
+                            guardarEnLocalStorage(slot);
                             unsubscribe();
                         } else if (datos) {
-                            historialTareas[index].estado = datos.estado;
-                            guardarEnLocalStorage();
+                            estado[slot].historialTareas[index].estado = datos.estado;
+                            guardarEnLocalStorage(slot);
                         }
                     });
                 }
             });
         }
 
-        renderizarHistorial();
-        reconectarPendientes();
-
-        document.getElementById("fidelidadIA").addEventListener("input", function() {
-            document.getElementById("valorFidelidad").innerText = this.value;
-        });
-
         // ==========================================
-        // LÓGICA DEL LIENZO Y CROPPER (RECORTE MANUAL)
+        // 5. INICIALIZACIÓN DE CADA PANEL (lienzo, cropper, envío)
         // ==========================================
-        const inputArchivo = document.getElementById("archivo");
-        const contenedorLienzo = document.getElementById("contenedorLienzo");
-        const controlesPincel = document.getElementById("controlesPincel");
-        const controlesEdicion = document.getElementById("controlesEdicion");
-        const imgFondo = document.getElementById("imgFondo");
-        const canvas = document.getElementById("lienzoDibujo");
-        const ctx = canvas.getContext("2d");
-        const grosorPincel = document.getElementById("grosorPincel");
-        
-        let dibujando = false;
-        let cropperInstance = null; 
-        let datosRecorte = null; 
-        let urlOriginalImagen = ""; 
-        let extraX = 0; 
-        let extraY = 0;
+        function inicializarPanel(slot) {
+            renderizarHistorial(slot);
+            reconectarPendientes(slot);
 
-        inputArchivo.addEventListener("change", (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
+            el("fidelidadIA", slot).addEventListener("input", function() {
+                el("valorFidelidad", slot).innerText = this.value;
+            });
 
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                urlOriginalImagen = event.target.result;
-                imgFondo.src = urlOriginalImagen;
-                
+            el("btnPrender", slot).addEventListener("click", () => prenderServidor(slot));
+            el("btnApagar", slot).addEventListener("click", () => apagarServidor(slot));
+
+            // -------- Lienzo y Cropper (recorte manual) --------
+            const inputArchivo = el("archivo", slot);
+            const contenedorLienzo = el("contenedorLienzo", slot);
+            const controlesPincel = el("controlesPincel", slot);
+            const controlesEdicion = el("controlesEdicion", slot);
+            const imgFondo = el("imgFondo", slot);
+            const canvas = el("lienzoDibujo", slot);
+            const ctx = canvas.getContext("2d");
+            const grosorPincel = el("grosorPincel", slot);
+
+            inputArchivo.addEventListener("change", (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    estado[slot].urlOriginalImagen = event.target.result;
+                    imgFondo.src = estado[slot].urlOriginalImagen;
+
+                    imgFondo.addEventListener("load", () => {
+                        contenedorLienzo.classList.remove("hidden");
+                        controlesPincel.classList.remove("hidden");
+                        controlesEdicion.classList.remove("hidden");
+
+                        canvas.width = imgFondo.naturalWidth;
+                        canvas.height = imgFondo.naturalHeight;
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.lineCap = "round";
+                        ctx.lineJoin = "round";
+                        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+
+                        estado[slot].datosRecorte = null;
+                        canvas.classList.remove("hidden");
+                    }, { once: true });
+                };
+                reader.readAsDataURL(file);
+            });
+
+            const btnActivarRecorte = el("btnActivarRecorte", slot);
+            const btnAplicarRecorte = el("btnAplicarRecorte", slot);
+            const btnCancelarRecorte = el("btnCancelarRecorte", slot);
+
+            btnActivarRecorte.addEventListener("click", () => {
+                if (estado[slot].cropperInstance) return;
+                canvas.classList.add("hidden");
+                controlesPincel.classList.add("hidden");
+
+                const canvasFalso = document.createElement("canvas");
+                estado[slot].extraX = imgFondo.naturalWidth * 0.5;
+                estado[slot].extraY = imgFondo.naturalHeight * 0.5;
+
+                canvasFalso.width = imgFondo.naturalWidth + (estado[slot].extraX * 2);
+                canvasFalso.height = imgFondo.naturalHeight + (estado[slot].extraY * 2);
+
+                const ctxFalso = canvasFalso.getContext("2d");
+                ctxFalso.drawImage(imgFondo, estado[slot].extraX, estado[slot].extraY);
+
                 imgFondo.addEventListener("load", () => {
-                    contenedorLienzo.classList.remove("hidden");
-                    controlesPincel.classList.remove("hidden");
-                    controlesEdicion.classList.remove("hidden");
-                    
-                    canvas.width = imgFondo.naturalWidth;
-                    canvas.height = imgFondo.naturalHeight;
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.lineCap = "round";
-                    ctx.lineJoin = "round";
-                    ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-                    
-                    datosRecorte = null;
-                    canvas.classList.remove("hidden");
+                    estado[slot].cropperInstance = new Cropper(imgFondo, {
+                        viewMode: 0,
+                        autoCropArea: 0.5,
+                        background: true,
+                        minContainerHeight: 350,
+                        responsive: true
+                    });
+                    btnActivarRecorte.classList.add("hidden");
+                    btnAplicarRecorte.classList.remove("hidden");
+                    btnCancelarRecorte.classList.remove("hidden");
                 }, { once: true });
-            };
-            reader.readAsDataURL(file);
-        });
+                imgFondo.src = canvasFalso.toDataURL("image/png");
+            });
 
-        const btnActivarRecorte = document.getElementById("btnActivarRecorte");
-        const btnAplicarRecorte = document.getElementById("btnAplicarRecorte");
-        const btnCancelarRecorte = document.getElementById("btnCancelarRecorte");
+            btnCancelarRecorte.addEventListener("click", () => {
+                if (estado[slot].cropperInstance) { estado[slot].cropperInstance.destroy(); estado[slot].cropperInstance = null; }
+                imgFondo.addEventListener("load", () => {
+                    canvas.classList.remove("hidden");
+                    controlesPincel.classList.remove("hidden");
+                    btnActivarRecorte.classList.remove("hidden");
+                    btnAplicarRecorte.classList.add("hidden");
+                    btnCancelarRecorte.classList.add("hidden");
+                }, { once: true });
+                imgFondo.src = estado[slot].urlOriginalImagen;
+            });
 
-        btnActivarRecorte.addEventListener("click", () => {
-            if (cropperInstance) return;
-            canvas.classList.add("hidden");
-            controlesPincel.classList.add("hidden");
-            
-            const canvasFalso = document.createElement("canvas");
-            extraX = imgFondo.naturalWidth * 0.5; 
-            extraY = imgFondo.naturalHeight * 0.5; 
-            
-            canvasFalso.width = imgFondo.naturalWidth + (extraX * 2);
-            canvasFalso.height = imgFondo.naturalHeight + (extraY * 2);
-            
-            const ctxFalso = canvasFalso.getContext("2d");
-            ctxFalso.drawImage(imgFondo, extraX, extraY);
-            
-            imgFondo.addEventListener("load", () => {
-                cropperInstance = new Cropper(imgFondo, {
-                    viewMode: 0, 
-                    autoCropArea: 0.5,
-                    background: true,
-                    minContainerHeight: 350,
-                    responsive: true
-                });
-                btnActivarRecorte.classList.add("hidden");
-                btnAplicarRecorte.classList.remove("hidden");
-                btnCancelarRecorte.classList.remove("hidden");
-            }, { once: true });
-            imgFondo.src = canvasFalso.toDataURL("image/png");
-        });
+            btnAplicarRecorte.addEventListener("click", () => {
+                if (!estado[slot].cropperInstance) return;
+                const datosFalsos = estado[slot].cropperInstance.getData(true);
+                estado[slot].datosRecorte = {
+                    x: datosFalsos.x - estado[slot].extraX,
+                    y: datosFalsos.y - estado[slot].extraY,
+                    width: datosFalsos.width,
+                    height: datosFalsos.height
+                };
+                estado[slot].cropperInstance.destroy();
+                estado[slot].cropperInstance = null;
 
-        btnCancelarRecorte.addEventListener("click", () => {
-            if (cropperInstance) { cropperInstance.destroy(); cropperInstance = null; }
-            imgFondo.addEventListener("load", () => {
-                canvas.classList.remove("hidden");
-                controlesPincel.classList.remove("hidden");
-                btnActivarRecorte.classList.remove("hidden");
-                btnAplicarRecorte.classList.add("hidden");
-                btnCancelarRecorte.classList.add("hidden");
-            }, { once: true });
-            imgFondo.src = urlOriginalImagen;
-        });
+                imgFondo.addEventListener("load", () => {
+                    canvas.classList.remove("hidden");
+                    controlesPincel.classList.remove("hidden");
+                    btnActivarRecorte.classList.remove("hidden");
+                    btnAplicarRecorte.classList.add("hidden");
+                    btnCancelarRecorte.classList.add("hidden");
+                    alert("✅ Coordenadas expansivas guardadas. ¡El servidor armará el nuevo tamaño!");
+                }, { once: true });
+                imgFondo.src = estado[slot].urlOriginalImagen;
+            });
 
-        btnAplicarRecorte.addEventListener("click", () => {
-            if (!cropperInstance) return;
-            const datosFalsos = cropperInstance.getData(true);
-            datosRecorte = {
-                x: datosFalsos.x - extraX,
-                y: datosFalsos.y - extraY,
-                width: datosFalsos.width,
-                height: datosFalsos.height
-            };
-            cropperInstance.destroy();
-            cropperInstance = null;
-            
-            imgFondo.addEventListener("load", () => {
-                canvas.classList.remove("hidden");
-                controlesPincel.classList.remove("hidden");
-                btnActivarRecorte.classList.remove("hidden");
-                btnAplicarRecorte.classList.add("hidden");
-                btnCancelarRecorte.classList.add("hidden");
-                alert("✅ Coordenadas expansivas guardadas. ¡El servidor armará el nuevo tamaño!");
-            }, { once: true });
-            imgFondo.src = urlOriginalImagen;
-        });
+            canvas.addEventListener("mousedown", (e) => { estado[slot].dibujando = true; pintar(e); });
+            canvas.addEventListener("mouseup", () => { estado[slot].dibujando = false; ctx.beginPath(); });
+            canvas.addEventListener("mousemove", pintar);
+            canvas.addEventListener("mouseleave", () => { estado[slot].dibujando = false; ctx.beginPath(); });
 
-        canvas.addEventListener("mousedown", (e) => { dibujando = true; pintar(e); });
-        canvas.addEventListener("mouseup", () => { dibujando = false; ctx.beginPath(); });
-        canvas.addEventListener("mousemove", pintar);
-        canvas.addEventListener("mouseleave", () => { dibujando = false; ctx.beginPath(); });
-        
-        canvas.addEventListener("touchstart", (e) => { dibujando = true; pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
-        canvas.addEventListener("touchend", () => { dibujando = false; ctx.beginPath(); });
-        canvas.addEventListener("touchmove", (e) => { pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
+            canvas.addEventListener("touchstart", (e) => { estado[slot].dibujando = true; pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
+            canvas.addEventListener("touchend", () => { estado[slot].dibujando = false; ctx.beginPath(); });
+            canvas.addEventListener("touchmove", (e) => { pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
 
-        function pintar(e) {
-            if (!dibujando) return;
-            const rect = canvas.getBoundingClientRect();
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
-            const x = (e.clientX - rect.left) * scaleX;
-            const y = (e.clientY - rect.top) * scaleY;
-            ctx.lineWidth = grosorPincel.value * scaleX;
-            ctx.lineTo(x, y);
-            ctx.stroke();
-            ctx.beginPath();
-            ctx.moveTo(x, y);
-        }
+            function pintar(e) {
+                if (!estado[slot].dibujando) return;
+                const rect = canvas.getBoundingClientRect();
+                const scaleX = canvas.width / rect.width;
+                const scaleY = canvas.height / rect.height;
+                const x = (e.clientX - rect.left) * scaleX;
+                const y = (e.clientY - rect.top) * scaleY;
+                ctx.lineWidth = grosorPincel.value * scaleX;
+                ctx.lineTo(x, y);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.moveTo(x, y);
+            }
 
-        document.getElementById("btnLimpiar").addEventListener("click", () => {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-        });
+            el("btnLimpiar", slot).addEventListener("click", () => {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+            });
 
-        function obtenerMascaraBlob() {
-            return new Promise(resolve => {
-                const maskCanvas = document.createElement("canvas");
-                maskCanvas.width = canvas.width;
-                maskCanvas.height = canvas.height;
-                const mCtx = maskCanvas.getContext("2d");
-                
-                mCtx.fillStyle = "black";
-                mCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
-                mCtx.drawImage(canvas, 0, 0);
-                
-                const imgData = mCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
-                for (let i = 0; i < imgData.data.length; i += 4) {
-                    if (imgData.data[i] > 0) {
-                        imgData.data[i] = 255;   // R
-                        imgData.data[i+1] = 255; // G
-                        imgData.data[i+2] = 255; // B
-                        imgData.data[i+3] = 255; // Alpha
+            function obtenerMascaraBlob() {
+                return new Promise(resolve => {
+                    const maskCanvas = document.createElement("canvas");
+                    maskCanvas.width = canvas.width;
+                    maskCanvas.height = canvas.height;
+                    const mCtx = maskCanvas.getContext("2d");
+
+                    mCtx.fillStyle = "black";
+                    mCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+                    mCtx.drawImage(canvas, 0, 0);
+
+                    const imgData = mCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+                    for (let i = 0; i < imgData.data.length; i += 4) {
+                        if (imgData.data[i] > 0) {
+                            imgData.data[i] = 255;
+                            imgData.data[i+1] = 255;
+                            imgData.data[i+2] = 255;
+                            imgData.data[i+3] = 255;
+                        }
                     }
+                    mCtx.putImageData(imgData, 0, 0);
+                    maskCanvas.toBlob(resolve, "image/png");
+                });
+            }
+
+            // -------- Envío de tareas (etiquetadas con el slot de esta pestaña) --------
+            const btnEnviar = el("btnEnviar", slot);
+            const txtEstado = el("estado", slot);
+
+            btnEnviar.addEventListener("click", async () => {
+                const archivo = inputArchivo.files[0];
+                const comando = el("comando", slot).value;
+                const dimensionElegida = el("select-dimension", slot).value;
+                const mallaElegida = el("select-malla", slot).value;
+
+                if (!archivo) return alert("Sube una imagen primero");
+
+                btnEnviar.disabled = true;
+                btnEnviar.classList.replace("bg-blue-600", "bg-gray-600");
+                txtEstado.classList.remove("hidden");
+                txtEstado.innerText = "Subiendo imagen a la nube...";
+
+                try {
+                    const formOriginal = new FormData();
+                    formOriginal.append("image", archivo);
+                    const resOrig = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formOriginal });
+                    const dataOrig = await resOrig.json();
+                    if (!dataOrig.success) throw new Error("Falló subida original ImgBB");
+                    let urlOriginal = dataOrig.data.url;
+                    let urlMascara = "";
+
+                    if (comando === "armonizar_color") {
+                        txtEstado.innerText = "Subiendo máscara térmica...";
+                        const blobMascara = await obtenerMascaraBlob();
+                        const formMascara = new FormData();
+                        formMascara.append("image", blobMascara, "mascara.png");
+                        const resMascara = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formMascara });
+                        const dataMascara = await resMascara.json();
+                        if (!dataMascara.success) throw new Error("Falló subida de máscara ImgBB");
+                        urlMascara = dataMascara.data.url;
+                    }
+
+                    if (comando === "recorte_manual" && !estado[slot].datosRecorte) {
+                        throw new Error("Debes usar la herramienta '✂️ Recorte Manual' y darle a '✅ Aplicar Recorte' antes de enviar.");
+                    }
+
+                    const docRef = await addDoc(collection(db, "tareas_ia"), {
+                        estado: "pendiente",
+                        comando: comando,
+                        slot: String(slot),
+                        fidelidad: parseFloat(el("fidelidadIA", slot).value),
+                        fondo_id: el("fondoIA", slot).value,
+                        dimension: dimensionElegida,
+                        malla_id: mallaElegida,
+                        url_imagen: urlOriginal,
+                        url_mascara: urlMascara,
+                        crop_x: estado[slot].datosRecorte ? estado[slot].datosRecorte.x : 0,
+                        crop_y: estado[slot].datosRecorte ? estado[slot].datosRecorte.y : 0,
+                        crop_w: estado[slot].datosRecorte ? estado[slot].datosRecorte.width : 0,
+                        crop_h: estado[slot].datosRecorte ? estado[slot].datosRecorte.height : 0,
+                        fecha: new Date().toISOString()
+                    });
+
+                    let nuevaTarea = {
+                        id: docRef.id,
+                        comando: comando,
+                        estado: 'pendiente',
+                        urlOriginal: urlOriginal,
+                        urlResultado: null
+                    };
+                    estado[slot].historialTareas.unshift(nuevaTarea);
+                    guardarEnLocalStorage(slot);
+                    reconectarPendientes(slot);
+
+                    txtEstado.innerText = `¡Enviado al servidor de la Pestaña ${slot}! Mira el historial.`;
+                    setTimeout(() => txtEstado.classList.add("hidden"), 3000);
+
+                } catch (error) {
+                    alert(error.message);
+                } finally {
+                    btnEnviar.disabled = false;
+                    btnEnviar.classList.replace("bg-gray-600", "bg-blue-600");
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
                 }
-                mCtx.putImageData(imgData, 0, 0);
-                maskCanvas.toBlob(resolve, "image/png");
+            });
+
+            el("btnConfigurarURLs", slot).addEventListener("click", () => {
+                const actualCPU = localStorage.getItem(`url_apps_script_cpu_${slot}`) || "";
+                const nuevaCPU = prompt(`Pega la URL de Apps Script para encender la CPU de la Pestaña ${slot}:`, actualCPU);
+                if (nuevaCPU !== null) localStorage.setItem(`url_apps_script_cpu_${slot}`, nuevaCPU.trim());
+                alert(`✅ URL guardada de forma segura en este navegador para la Pestaña ${slot}.`);
             });
         }
 
-        // ==========================================
-        // ENVÍO DE DATOS
-        // ==========================================
-        const btnEnviar = document.getElementById("btnEnviar");
-        const txtEstado = document.getElementById("estado");
-
-        btnEnviar.addEventListener("click", async () => {
-            const archivo = inputArchivo.files[0];
-            const comando = document.getElementById("comando").value;
-            const dimensionElegida = document.getElementById("select-dimension").value;
-            const mallaElegida = document.getElementById("select-malla").value;
-            
-            if (!archivo) return alert("Sube una imagen primero");
-
-            btnEnviar.disabled = true;
-            btnEnviar.classList.replace("bg-blue-600", "bg-gray-600");
-            txtEstado.classList.remove("hidden");
-            txtEstado.innerText = "Subiendo imagen a la nube...";
-
-            try {
-                const formOriginal = new FormData();
-                formOriginal.append("image", archivo);
-                const resOrig = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formOriginal });
-                const dataOrig = await resOrig.json();
-                if (!dataOrig.success) throw new Error("Falló subida original ImgBB");
-                let urlOriginal = dataOrig.data.url;
-                let urlMascara = "";
-
-                if (comando === "armonizar_color") {
-                    txtEstado.innerText = "Subiendo máscara térmica...";
-                    const blobMascara = await obtenerMascaraBlob();
-                    const formMascara = new FormData();
-                    formMascara.append("image", blobMascara, "mascara.png");
-                    const resMascara = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formMascara });
-                    const dataMascara = await resMascara.json();
-                    if (!dataMascara.success) throw new Error("Falló subida de máscara ImgBB");
-                    urlMascara = dataMascara.data.url;
-                }
-                
-                if (comando === "recorte_manual" && !datosRecorte) {
-                    throw new Error("Debes usar la herramienta '✂️ Recorte Manual' y darle a '✅ Aplicar Recorte' antes de enviar.");
-                }
-
-                const docRef = await addDoc(collection(db, "tareas_ia"), {
-                    estado: "pendiente",
-                    comando: comando,
-                    fidelidad: parseFloat(document.getElementById("fidelidadIA").value),
-                    fondo_id: document.getElementById("fondoIA").value,
-                    dimension: dimensionElegida, 
-                    malla_id: mallaElegida,      
-                    url_imagen: urlOriginal,
-                    url_mascara: urlMascara,
-                    crop_x: datosRecorte ? datosRecorte.x : 0,
-                    crop_y: datosRecorte ? datosRecorte.y : 0,
-                    crop_w: datosRecorte ? datosRecorte.width : 0,
-                    crop_h: datosRecorte ? datosRecorte.height : 0,
-                    fecha: new Date().toISOString()
-                });
-
-                let nuevaTarea = {
-                    id: docRef.id,
-                    comando: comando,
-                    estado: 'pendiente',
-                    urlOriginal: urlOriginal,
-                    urlResultado: null
-                };
-                historialTareas.unshift(nuevaTarea);
-                guardarEnLocalStorage();
-                reconectarPendientes();
-
-                txtEstado.innerText = "¡Enviado a Kaggle! Mira el historial.";
-                setTimeout(() => txtEstado.classList.add("hidden"), 3000);
-
-            } catch (error) {
-                alert(error.message);
-            } finally {
-                btnEnviar.disabled = false;
-                btnEnviar.classList.replace("bg-gray-600", "bg-blue-600");
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-            }
-        });
-
-        document.getElementById("btnConfigurarURLs").addEventListener("click", () => {
-            const actualCPU = localStorage.getItem('url_apps_script_cpu') || "";
-            const nuevaCPU = prompt("Pega la URL de Apps Script para encender la CPU:", actualCPU);
-            if (nuevaCPU !== null) localStorage.setItem('url_apps_script_cpu', nuevaCPU.trim());
-            alert("✅ URL guardada de forma segura en este navegador.");
-        });
+        SLOTS.forEach(slot => inicializarPanel(slot));
 
     </script>
 </body>

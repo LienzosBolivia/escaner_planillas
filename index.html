@@ -47,11 +47,22 @@
                     <button id="btnAplicarRecorte-__SLOT__" class="hidden flex-1 bg-green-600 hover:bg-green-500 text-white text-sm py-2 rounded font-bold shadow transition">✅ Aplicar Recorte</button>
                     <button id="btnCancelarRecorte-__SLOT__" class="hidden bg-red-600 hover:bg-red-500 text-white text-sm px-4 py-2 rounded font-bold shadow transition">❌</button>
                 </div>
+                <div id="guiaRecorte-__SLOT__" class="hidden mb-4 bg-gray-900 border border-yellow-600 text-yellow-300 text-xs font-bold p-2 rounded text-center"></div>
+
+                <!-- Probador rápido de fondos: aparece cuando ya existe un recorte "sin fondo" -->
+                <div id="probadorFondos-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded border border-purple-500">
+                    <label class="block text-sm font-bold text-purple-300 mb-2">🎨 Probador de Fondos (usa el recorte ya hecho, es rápido)</label>
+                    <div class="flex gap-2 mb-2">
+                        <input type="number" id="fondoPrueba-__SLOT__" min="0" max="25" value="1" class="w-20 p-2 bg-gray-600 rounded text-white font-bold text-center">
+                        <button id="btnProbarFondo-__SLOT__" class="flex-1 bg-purple-600 hover:bg-purple-500 text-white text-sm py-2 rounded font-bold shadow transition">👁️ Probar este fondo</button>
+                    </div>
+                    <p class="text-[11px] text-gray-400">Cambia el número y volvé a apretar "Probar" tantas veces como quieras — no vuelve a cortar, solo cambia el fondo. Cuando encuentres el que te gusta, usá ese número en "Fondo Nº" más abajo y enviá la tarea normal (Proceso Completo / Solo Quitar Fondo) para el resultado final.</p>
+                </div>
 
                 <!-- EL LIENZO DE DIBUJO -->
-                <div id="contenedorLienzo-__SLOT__" class="relative hidden mb-4 border-2 border-dashed border-gray-500 rounded bg-gray-900 overflow-hidden">
-                    <img id="imgFondo-__SLOT__" class="w-full h-auto block" src="">
-                    <canvas id="lienzoDibujo-__SLOT__" class="absolute top-0 left-0 w-full h-full cursor-crosshair"></canvas>
+                <div id="contenedorLienzo-__SLOT__" class="relative hidden mb-4 border-2 border-dashed border-gray-500 rounded bg-gray-900 overflow-hidden" style="-webkit-touch-callout: none;">
+                    <img id="imgFondo-__SLOT__" class="w-full h-auto block" src="" style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none;" draggable="false" oncontextmenu="return false;">
+                    <canvas id="lienzoDibujo-__SLOT__" class="absolute top-0 left-0 w-full h-full cursor-crosshair" style="touch-action: none;" oncontextmenu="return false;"></canvas>
                 </div>
 
                 <div id="controlesPincel-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded flex justify-between items-center">
@@ -67,6 +78,7 @@
                     <option value="recorte_manual">📐 Recorte Manual Expansivo</option>
                     <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
                     <option value="solo_recortar">✂️ Solo Quitar + Cambiar Fondo</option>
+                    <option value="cortar_sin_fondo">🖼️ Cortar Sin Fondo (para probar fondos)</option>
                     <option value="armonizar_color">🎨 Armonizar / Emparejar Color</option>
                     <option value="restaurar_rostro_logo">🧑‍🎨 Restaurar Rostro Original + Quitar Logo IA</option>
                 </select>
@@ -176,6 +188,7 @@
                 cropperInstance: null,
                 datosRecorte: null,
                 urlOriginalImagen: "",
+                urlSinFondo: "",
                 extraX: 0,
                 extraY: 0,
                 dibujando: false,
@@ -186,6 +199,16 @@
         });
 
         function el(id, slot) { return document.getElementById(`${id}-${slot}`); }
+
+        // Tamaños de impresión disponibles, en cm (ancho x alto), usados para
+        // bloquear la proporción del recorte manual y mostrar los "numeritos" en vivo.
+        const DIMENSIONES_CM = {
+            "16x22": [16, 22],
+            "20x27": [20, 27],
+            "30x42": [30, 42],
+            "40x50": [40, 50],
+            "50x60": [50, 60],
+        };
 
         // ==========================================
         // 1. CONSTRUIR LAS 5 PESTAÑAS Y SUS PANELES
@@ -484,6 +507,12 @@
                                     estado[slot].historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
                                     estado[slot].historialTareas[index].driveIdMalla = datos.drive_id_malla;
                                 }
+                                // Si la tarea era "cortar sin fondo", guardamos su resultado
+                                // (PNG transparente) para poder probar fondos rápido después.
+                                if (estado[slot].historialTareas[index].comando === "cortar_sin_fondo" && datos.url_resultado) {
+                                    estado[slot].urlSinFondo = datos.url_resultado;
+                                    el("probadorFondos", slot).classList.remove("hidden");
+                                }
                             }
                             guardarEnLocalStorage(slot);
                             unsubscribe();
@@ -586,13 +615,38 @@
                 ctxFalso.drawImage(imgFondo, estado[slot].extraX, estado[slot].extraY);
 
                 imgFondo.addEventListener("load", () => {
-                    estado[slot].cropperInstance = new Cropper(imgFondo, {
+                    const dimensionElegida = el("select-dimension", slot).value;
+                    const par = DIMENSIONES_CM[dimensionElegida]; // [ancho_cm, alto_cm] o undefined si "original"
+                    const guia = el("guiaRecorte", slot);
+
+                    const opcionesCropper = {
                         viewMode: 0,
                         autoCropArea: 0.5,
                         background: true,
                         minContainerHeight: 350,
-                        responsive: true
-                    });
+                        responsive: true,
+                    };
+                    if (par) {
+                        opcionesCropper.aspectRatio = par[0] / par[1]; // fuerza SIEMPRE la proporción correcta
+                        guia.classList.remove("hidden");
+                        guia.innerText = `📐 Recorte bloqueado a proporción ${dimensionElegida.replace('x', ' x ')} cm — movelo/agrandalo hasta centrar a la persona.`;
+                    } else {
+                        guia.classList.add("hidden");
+                    }
+
+                    estado[slot].cropperInstance = new Cropper(imgFondo, opcionesCropper);
+
+                    if (par) {
+                        // Actualiza los "numeritos" en vivo: tamaño real aproximado (a 300dpi,
+                        // el estándar de imprenta) del recorte actual, para juzgar la resolución.
+                        imgFondo.addEventListener("crop", (ev) => {
+                            const DPI = 300;
+                            const anchoCm = (ev.detail.width / DPI * 2.54).toFixed(1);
+                            const altoCm = (ev.detail.height / DPI * 2.54).toFixed(1);
+                            guia.innerText = `📐 Recorte actual ≈ ${anchoCm} x ${altoCm} cm (a 300dpi) — proporción fija ${dimensionElegida.replace('x', ' x ')} cm.`;
+                        });
+                    }
+
                     btnActivarRecorte.classList.add("hidden");
                     btnAplicarRecorte.classList.remove("hidden");
                     btnCancelarRecorte.classList.remove("hidden");
@@ -602,6 +656,7 @@
 
             btnCancelarRecorte.addEventListener("click", () => {
                 if (estado[slot].cropperInstance) { estado[slot].cropperInstance.destroy(); estado[slot].cropperInstance = null; }
+                el("guiaRecorte", slot).classList.add("hidden");
                 imgFondo.addEventListener("load", () => {
                     canvas.classList.remove("hidden");
                     controlesPincel.classList.remove("hidden");
@@ -623,6 +678,7 @@
                 };
                 estado[slot].cropperInstance.destroy();
                 estado[slot].cropperInstance = null;
+                el("guiaRecorte", slot).classList.add("hidden");
 
                 imgFondo.addEventListener("load", () => {
                     canvas.classList.remove("hidden");
@@ -823,6 +879,46 @@
                 const nuevaCPU = prompt(`Pega la URL de Apps Script (puede ser LA MISMA para las 5 pestañas, el sistema envía el número de slot automáticamente):`, actualCPU);
                 if (nuevaCPU !== null) localStorage.setItem(`url_apps_script_cpu_${slot}`, nuevaCPU.trim());
                 alert(`✅ URL guardada de forma segura en este navegador para la Pestaña ${slot}.`);
+            });
+
+            // -------- Probador rápido de fondos --------
+            // Reutiliza el PNG "sin fondo" ya cortado: el servidor NO vuelve a
+            // correr la IA de recorte, solo pega el fondo elegido, así que cada
+            // prueba tarda segundos en vez de minutos.
+            el("btnProbarFondo", slot).addEventListener("click", async () => {
+                if (!estado[slot].urlSinFondo) {
+                    return alert('Primero corré la acción "🖼️ Cortar Sin Fondo (para probar fondos)".');
+                }
+                const btn = el("btnProbarFondo", slot);
+                const fondoElegido = el("fondoPrueba", slot).value;
+                btn.disabled = true;
+                btn.innerText = "⏳ Probando...";
+                try {
+                    const docRef = await addDoc(collection(db, "tareas_ia"), {
+                        estado: "pendiente",
+                        comando: "probar_fondo",
+                        slot: String(slot),
+                        fondo_id: fondoElegido,
+                        dimension: el("select-dimension", slot).value,
+                        malla_id: el("select-malla", slot).value,
+                        url_imagen: estado[slot].urlSinFondo,
+                        fecha: new Date().toISOString()
+                    });
+                    estado[slot].historialTareas.unshift({
+                        id: docRef.id,
+                        comando: `probar_fondo (Nº ${fondoElegido})`,
+                        estado: 'pendiente',
+                        urlOriginal: estado[slot].urlSinFondo,
+                        urlResultado: null
+                    });
+                    guardarEnLocalStorage(slot);
+                    reconectarPendientes(slot);
+                } catch (error) {
+                    alert("Error al probar el fondo: " + error.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = "👁️ Probar este fondo";
+                }
             });
         }
 

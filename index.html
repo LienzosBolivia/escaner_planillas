@@ -346,6 +346,53 @@
             }
         }
 
+        // Confirmación en DOS pasos para encender un servidor duplicado.
+        // A propósito NO usa confirm() nativo: en celular, el botón "Aceptar"
+        // del confirm nativo a veces queda debajo del dedo justo después de
+        // tocar "Iniciar Servidor", y un toque accidental lo confirma solo.
+        // Acá el botón cambia de texto/color y hay que tocarlo DE NUEVO
+        // dentro de 6 segundos, si no se cancela solo.
+        function confirmarEncenderDuplicado(slot, segundos, estadoActual) {
+            return new Promise((resolve) => {
+                const btnOriginal = el("btnPrender", slot);
+                const textoOriginal = btnOriginal.innerText;
+                const claseOriginal = btnOriginal.className;
+
+                // Clonamos el botón: esto QUITA el listener original de
+                // "click" (el que llama a prenderServidor normal), así el
+                // próximo toque SOLO puede disparar la confirmación, nunca
+                // los dos a la vez.
+                const btnConfirmacion = btnOriginal.cloneNode(true);
+                btnConfirmacion.innerText = `⚠️ Ya hay uno activo (hace ${segundos}s). Tocá de nuevo para confirmar`;
+                btnConfirmacion.className = claseOriginal.replace('bg-green-900', 'bg-orange-600').replace('hover:bg-green-800', 'hover:bg-orange-500');
+                btnOriginal.parentNode.replaceChild(btnConfirmacion, btnOriginal);
+
+                let resuelto = false;
+                const restaurarBotonNormal = () => {
+                    const btnNuevoNormal = btnConfirmacion.cloneNode(true);
+                    btnNuevoNormal.innerText = textoOriginal;
+                    btnNuevoNormal.className = claseOriginal;
+                    btnConfirmacion.parentNode.replaceChild(btnNuevoNormal, btnConfirmacion);
+                    btnNuevoNormal.addEventListener("click", () => prenderServidor(slot));
+                };
+
+                btnConfirmacion.addEventListener("click", () => {
+                    if (resuelto) return;
+                    resuelto = true;
+                    clearTimeout(temporizador);
+                    restaurarBotonNormal();
+                    resolve(true);
+                }, { once: true });
+
+                const temporizador = setTimeout(() => {
+                    if (resuelto) return;
+                    resuelto = true;
+                    restaurarBotonNormal();
+                    resolve(false);
+                }, 6000);
+            });
+        }
+
         window.prenderServidor = async function(slot, forzar = false) {
             const refServidor = doc(db, "servidores", `slot_${slot}`);
 
@@ -360,12 +407,8 @@
                         const activo = haceMs < UMBRAL_INACTIVIDAD_MS && ['escuchando', 'procesando', 'iniciando'].includes(datos.estado);
                         if (activo) {
                             const segundos = Math.round(haceMs / 1000);
-                            const continuar = confirm(
-                                `⚠️ La Pestaña ${slot} ya tiene un servidor con señal activa (hace ${segundos}s, estado: ${datos.estado}).\n\n` +
-                                `Si encendés otro, van a quedar DOS notebooks corriendo a la vez en Kaggle (gastando tu cuota).\n\n` +
-                                `¿Encender uno nuevo de todas formas?`
-                            );
-                            if (!continuar) return;
+                            const confirmado = await confirmarEncenderDuplicado(slot, segundos, datos.estado);
+                            if (!confirmado) return;
                         }
                     }
                 } catch (err) {

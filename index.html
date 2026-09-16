@@ -162,17 +162,19 @@
     <!-- Scripts de Firebase y Lógica -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        import { getFirestore, collection, addDoc, onSnapshot, doc, setDoc, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+        // 🔥 Importamos Realtime Database en vez de Firestore
+        import { getDatabase, ref, push, onValue, update, set, get, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDP1vPBXFQkvzx1YIbTCziOzXDRxQ6a_kM",
             authDomain: "botartes.firebaseapp.com",
+            databaseURL: "https://botartes-default-rtdb.firebaseio.com", // <-- AÑADIDO
             projectId: "botartes",
             messagingSenderId: "513493472800",
             appId: "1:513493472800:web:55b4aed3c9ae1435aa0e45"
         };
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+        const db = getDatabase(app); // Ahora usamos getDatabase
         const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0";
 
         const SLOTS = [1, 2, 3, 4, 5];
@@ -394,16 +396,16 @@
         }
 
         window.prenderServidor = async function(slot, forzar = false) {
-            const refServidor = doc(db, "servidores", `slot_${slot}`);
+            const refServidor = ref(db, `servidores/slot_${slot}`);
 
             // Guardia anti-duplicados: si ya hay una señal reciente y viva,
             // confirmamos antes de lanzar OTRO notebook en Kaggle.
             if (!forzar) {
                 try {
-                    const snap = await getDoc(refServidor);
+                    const snap = await get(refServidor);
                     if (snap.exists()) {
-                        const datos = snap.data();
-                        const haceMs = datos.actualizado ? (Date.now() - datos.actualizado.toMillis()) : Infinity;
+                        const datos = snap.val();
+                        const haceMs = datos.actualizado ? (Date.now() - datos.actualizado) : Infinity;
                         const activo = haceMs < UMBRAL_INACTIVIDAD_MS && ['escuchando', 'procesando', 'iniciando'].includes(datos.estado);
                         if (activo) {
                             const segundos = Math.round(haceMs / 1000);
@@ -444,7 +446,7 @@
                 // se ve el estado "listo" de una sesión vieja mientras el
                 // notebook nuevo todavía está instalando cosas.
                 estado[slot].ultimoServidorMillis = Date.now();
-                await setDoc(refServidor, {
+                await set(refServidor, {
                     estado: 'iniciando',
                     progreso: 2,
                     mensaje: '🚀 Orden enviada. Esperando que Kaggle arranque el notebook (puede tardar 1-3 min en llegar la primera señal real)...',
@@ -466,7 +468,7 @@
         window.apagarServidor = async function(slot) {
             if (!confirm(`¿Seguro que quieres apagar el servidor de la Pestaña ${slot}?`)) return;
             try {
-                await addDoc(collection(db, "tareas_ia"), { estado: "pendiente", comando: "apagar_servidor", slot: String(slot), fecha: new Date().toISOString() });
+                await set(push(ref(db, "tareas_ia")), { estado: "pendiente", comando: "apagar_servidor", slot: String(slot), fecha: new Date().toISOString() });
                 alert(`Orden de apagado encolada para la Pestaña ${slot}. El servidor se detendrá pronto.`);
             } catch (error) {
                 alert("Error enviando orden de apagado.");
@@ -539,8 +541,8 @@
         function reconectarPendientes(slot) {
             estado[slot].historialTareas.forEach((tarea, index) => {
                 if (tarea.estado === 'pendiente' || tarea.estado === 'procesando') {
-                    const unsubscribe = onSnapshot(doc(db, "tareas_ia", tarea.id), (documento) => {
-                        const datos = documento.data();
+                    const unsubscribe = onValue(ref(db, `tareas_ia/${tarea.id}`), (documento) => {
+                        const datos = documento.val();
                         if (datos && (datos.estado === "completado" || datos.estado === "error")) {
                             estado[slot].historialTareas[index].estado = datos.estado;
                             if (datos.estado === "completado") {
@@ -585,17 +587,17 @@
             // -------- Escucha permanente del estado real del servidor --------
             // Se conecta desde que se abre la pestaña (no solo al apretar "Encender"),
             // para que nunca se desincronice si salís y volvés a entrar al panel.
-            const refServidor = doc(db, "servidores", `slot_${slot}`);
-            estado[slot].unsubServidor = onSnapshot(refServidor, (snap) => {
+            const refServidor = ref(db, `servidores/slot_${slot}`);
+            estado[slot].unsubServidor = onValue(refServidor, (snap) => {
                 if (!snap.exists()) return;
-                const datos = snap.data();
+                const datos = snap.val();
                 estado[slot].ultimoServidorDatos = datos;
-                estado[slot].ultimoServidorMillis = datos.actualizado ? datos.actualizado.toMillis() : Date.now();
+                estado[slot].ultimoServidorMillis = datos.actualizado || Date.now();
                 pintarEstadoServidor(slot, datos);
             });
 
-            // Revisa cada 5s si dejó de llegar señal (latido), aunque Firestore
-            // no dispare un snapshot nuevo (el notebook pudo simplemente caerse).
+            // Revisa cada 5s si dejó de llegar señal (latido), aunque RTDB
+            // no dispare un evento nuevo (el notebook pudo simplemente caerse).
             setInterval(() => {
                 if (estado[slot].ultimoServidorDatos) pintarEstadoServidor(slot, estado[slot].ultimoServidorDatos);
             }, 5000);
@@ -876,7 +878,8 @@
                         throw new Error("Debes usar la herramienta '✂️ Recorte Manual' y darle a '✅ Aplicar Recorte' antes de enviar.");
                     }
 
-                    const docRef = await addDoc(collection(db, "tareas_ia"), {
+                    const nuevaTareaRef = push(ref(db, "tareas_ia"));
+                    await set(nuevaTareaRef, {
                         estado: "pendiente",
                         comando: comando,
                         slot: String(slot),
@@ -895,7 +898,7 @@
                     });
 
                     let nuevaTarea = {
-                        id: docRef.id,
+                        id: nuevaTareaRef.key,
                         comando: comando,
                         estado: 'pendiente',
                         urlOriginal: urlOriginal,
@@ -937,7 +940,8 @@
                 btn.disabled = true;
                 btn.innerText = "⏳ Probando...";
                 try {
-                    const docRef = await addDoc(collection(db, "tareas_ia"), {
+                    const nuevaTareaRef = push(ref(db, "tareas_ia"));
+                    await set(nuevaTareaRef, {
                         estado: "pendiente",
                         comando: "probar_fondo",
                         slot: String(slot),
@@ -948,7 +952,7 @@
                         fecha: new Date().toISOString()
                     });
                     estado[slot].historialTareas.unshift({
-                        id: docRef.id,
+                        id: nuevaTareaRef.key,
                         comando: `probar_fondo (Nº ${fondoElegido})`,
                         estado: 'pendiente',
                         urlOriginal: estado[slot].urlSinFondo,

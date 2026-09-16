@@ -175,7 +175,38 @@
         };
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app); // Ahora usamos getDatabase
-        const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0";
+        const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0"; // ya no se usa para subir, se deja por si acaso
+
+        // 📤 Sube un archivo/blob a Google Drive a través del Apps Script (doPost,
+        // action "upload"), en vez de a ImgBB. Kaggle tiene que descargar estas
+        // imágenes, y las IPs de datacenter de Kaggle suelen quedar bloqueadas
+        // silenciosamente por ImgBB (conexión abierta que nunca entrega datos).
+        // Drive no tiene ese problema porque ya usamos ese mismo canal para
+        // subir los resultados finales sin fallos.
+        async function subirADrive(archivoOBlob, slotActual, nombreArchivo) {
+            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slotActual}`);
+            if (!urlWebHook) throw new Error("No hay URL de Apps Script guardada para este slot.");
+
+            const base64Completo = await new Promise((resolve, reject) => {
+                const lector = new FileReader();
+                lector.onload = () => resolve(lector.result.split(",")[1]);
+                lector.onerror = () => reject(new Error("No se pudo leer el archivo para subirlo."));
+                lector.readAsDataURL(archivoOBlob);
+            });
+
+            const respuesta = await fetch(urlWebHook, {
+                method: "POST",
+                body: JSON.stringify({
+                    action: "upload",
+                    filename: nombreArchivo || (archivoOBlob.name || "imagen.jpg"),
+                    mimetype: archivoOBlob.type || "image/jpeg",
+                    base64: base64Completo
+                })
+            });
+            const datos = await respuesta.json();
+            if (!datos.success) throw new Error("Falló subida a Google Drive: " + (datos.error || "sin detalle"));
+            return datos; // { success, url, fileId }
+        }
 
         const SLOTS = [1, 2, 3, 4, 5];
         // Si no llega ninguna señal nueva del notebook en este tiempo, lo consideramos
@@ -831,46 +862,30 @@
                 txtEstado.innerText = "Subiendo imagen a la nube...";
 
                 try {
-                    const formOriginal = new FormData();
-                    formOriginal.append("image", archivo);
-                    const resOrig = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formOriginal });
-                    const dataOrig = await resOrig.json();
-                    if (!dataOrig.success) throw new Error("Falló subida original ImgBB");
-                    let urlOriginal = dataOrig.data.url;
+                    const dataOrig = await subirADrive(archivo, slot, archivo.name);
+                    let urlOriginal = dataOrig.url;
                     let urlMascara = "";
                     let urlRostroReferencia = "";
 
                     if (comando === "armonizar_color") {
                         txtEstado.innerText = "Subiendo máscara térmica...";
                         const blobMascara = await obtenerMascaraBlob();
-                        const formMascara = new FormData();
-                        formMascara.append("image", blobMascara, "mascara.png");
-                        const resMascara = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formMascara });
-                        const dataMascara = await resMascara.json();
-                        if (!dataMascara.success) throw new Error("Falló subida de máscara ImgBB");
-                        urlMascara = dataMascara.data.url;
+                        const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
+                        urlMascara = dataMascara.url;
                     }
 
                     if (comando === "restaurar_rostro_logo") {
                         txtEstado.innerText = "Subiendo foto de referencia del rostro...";
                         const archivoRostro = el("archivoRostro", slot).files[0];
-                        const formRostro = new FormData();
-                        formRostro.append("image", archivoRostro);
-                        const resRostro = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formRostro });
-                        const dataRostro = await resRostro.json();
-                        if (!dataRostro.success) throw new Error("Falló subida de la foto de referencia ImgBB");
-                        urlRostroReferencia = dataRostro.data.url;
+                        const dataRostro = await subirADrive(archivoRostro, slot, archivoRostro.name);
+                        urlRostroReferencia = dataRostro.url;
 
                         // La máscara del logo es opcional: solo se sube si el usuario pintó algo con el pincel.
                         if (hayAlgoPintado()) {
                             txtEstado.innerText = "Subiendo máscara del logo a borrar...";
                             const blobMascara = await obtenerMascaraBlob();
-                            const formMascara = new FormData();
-                            formMascara.append("image", blobMascara, "mascara.png");
-                            const resMascara = await fetch(`https://api.imgbb.com/1/upload?key=${API_KEY_IMGBB}`, { method: "POST", body: formMascara });
-                            const dataMascara = await resMascara.json();
-                            if (!dataMascara.success) throw new Error("Falló subida de máscara ImgBB");
-                            urlMascara = dataMascara.data.url;
+                            const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
+                            urlMascara = dataMascara.url;
                         }
                     }
 

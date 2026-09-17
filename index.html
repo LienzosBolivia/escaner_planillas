@@ -1,1005 +1,2035 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel IA - Laboratorio Profesional</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-
-    <!-- Librería profesional para recortes (Cropper.js) -->
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-</head>
-<body class="bg-gray-900 text-white min-h-screen p-4 md:p-8 flex flex-col items-center">
-
-    <!-- ========================================================== -->
-    <!-- BARRA DE PESTAÑAS (5 servidores/paneles independientes)    -->
-    <!-- ========================================================== -->
-    <div class="w-full max-w-5xl mb-4">
-        <div id="barraPestañas" class="flex gap-1 bg-gray-800 p-1 rounded-xl shadow-lg overflow-x-auto"></div>
-    </div>
-
-    <div id="panelesContenedor" class="w-full max-w-5xl"></div>
-
-    <!-- ========================================================== -->
-    <!-- PLANTILLA DE UN PANEL (se clona 5 veces, una por pestaña)   -->
-    <!-- ========================================================== -->
-    <template id="plantillaPanel">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-            <!-- COLUMNA IZQUIERDA: CONTROLES Y LIENZO -->
-            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl">
-                <h1 class="text-2xl font-bold mb-1 text-blue-400">⚡ Nueva Tarea IA</h1>
-                <p class="text-xs text-gray-500 mb-5">Pestaña __SLOT__ · servidor y cola independientes</p>
-
-                <input type="file" id="archivo-__SLOT__" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
-
-                <!-- Imagen de referencia del rostro original (solo para "Restaurar Rostro + Quitar Logo IA") -->
-                <div id="contenedorRostroRef-__SLOT__" class="hidden mb-4">
-                    <label class="block text-sm font-bold text-gray-300 mb-1">📸 Foto con el rostro ORIGINAL a mantener:</label>
-                    <input type="file" id="archivoRostro-__SLOT__" accept="image/*" class="w-full p-2 bg-gray-700 rounded cursor-pointer">
-                    <p class="text-[11px] text-gray-500 mt-1">Se recortará el rostro de esta foto y se pondrá en la imagen del panel. Además, pinta con el pincel de abajo sobre el logo de la IA (Gemini u otra) para borrarlo.</p>
-                </div>
-
-                <!-- Controles de Recorte Manual -->
-                <div id="controlesEdicion-__SLOT__" class="hidden flex gap-2 mb-4">
-                    <button id="btnActivarRecorte-__SLOT__" class="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-sm py-2 rounded font-bold shadow transition">✂️ Recorte Manual</button>
-                    <button id="btnAplicarRecorte-__SLOT__" class="hidden flex-1 bg-green-600 hover:bg-green-500 text-white text-sm py-2 rounded font-bold shadow transition">✅ Aplicar Recorte</button>
-                    <button id="btnCancelarRecorte-__SLOT__" class="hidden bg-red-600 hover:bg-red-500 text-white text-sm px-4 py-2 rounded font-bold shadow transition">❌</button>
-                </div>
-                <div id="guiaRecorte-__SLOT__" class="hidden mb-4 bg-gray-900 border border-yellow-600 text-yellow-300 text-xs font-bold p-2 rounded text-center"></div>
-
-                <!-- Probador rápido de fondos: aparece cuando ya existe un recorte "sin fondo" -->
-                <div id="probadorFondos-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded border border-purple-500">
-                    <label class="block text-sm font-bold text-purple-300 mb-2">🎨 Probador de Fondos (usa el recorte ya hecho, es rápido)</label>
-                    <div class="flex gap-2 mb-2">
-                        <input type="number" id="fondoPrueba-__SLOT__" min="0" max="25" value="1" class="w-20 p-2 bg-gray-600 rounded text-white font-bold text-center">
-                        <button id="btnProbarFondo-__SLOT__" class="flex-1 bg-purple-600 hover:bg-purple-500 text-white text-sm py-2 rounded font-bold shadow transition">👁️ Probar este fondo</button>
-                    </div>
-                    <p class="text-[11px] text-gray-400">Cambia el número y volvé a apretar "Probar" tantas veces como quieras — no vuelve a cortar, solo cambia el fondo. Cuando encuentres el que te gusta, usá ese número en "Fondo Nº" más abajo y enviá la tarea normal (Proceso Completo / Solo Quitar Fondo) para el resultado final.</p>
-                </div>
-
-                <!-- EL LIENZO DE DIBUJO -->
-                <div id="contenedorLienzo-__SLOT__" class="relative hidden mb-4 border-2 border-dashed border-gray-500 rounded bg-gray-900 overflow-hidden" style="-webkit-touch-callout: none;">
-                    <img id="imgFondo-__SLOT__" class="w-full h-auto block" src="" style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none;" draggable="false" oncontextmenu="return false;">
-                    <canvas id="lienzoDibujo-__SLOT__" class="absolute top-0 left-0 w-full h-full cursor-crosshair" style="touch-action: none;" oncontextmenu="return false;"></canvas>
-                </div>
-
-                <div id="controlesPincel-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded flex justify-between items-center">
-                    <span class="text-sm font-bold text-gray-300">Grosor Pincel:</span>
-                    <input type="range" id="grosorPincel-__SLOT__" min="5" max="50" value="20" class="w-1/2 mx-2">
-                    <button id="btnLimpiar-__SLOT__" class="bg-red-500 hover:bg-red-600 text-xs px-3 py-1 rounded font-bold shadow">Limpiar</button>
-                </div>
-
-                <label class="block text-sm font-bold text-gray-300 mb-1">Acción a realizar:</label>
-                <select id="comando-__SLOT__" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
-                    <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
-                    <option value="solo_encuadre">🎯 Solo Encuadre Automático</option>
-                    <option value="recorte_manual">📐 Recorte Manual Expansivo</option>
-                    <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
-                    <option value="solo_recortar">✂️ Solo Quitar + Cambiar Fondo</option>
-                    <option value="cortar_sin_fondo">🖼️ Cortar Sin Fondo (para probar fondos)</option>
-                    <option value="armonizar_color">🎨 Armonizar / Emparejar Color</option>
-                    <option value="restaurar_rostro_logo">🧑‍🎨 Restaurar Rostro Original + Quitar Logo IA</option>
-                </select>
-
-                <div class="mb-4 bg-gray-700 p-3 rounded">
-                    <label class="block text-sm font-bold text-gray-300 mb-2">Tamaño de Impresión (cm):</label>
-                    <select id="select-dimension-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
-                        <option value="original">Mantener Original</option>
-                        <option value="16x22">16 x 22 cm</option>
-                        <option value="20x27">20 x 27 cm</option>
-                        <option value="30x42">30 x 42 cm</option>
-                        <option value="40x50">40 x 50 cm</option>
-                        <option value="50x60">50 x 60 cm</option>
-                    </select>
-                </div>
-
-                <div class="mb-4 bg-gray-700 p-3 rounded">
-                    <label class="block text-sm font-bold text-gray-300 mb-2">Malla de Misión:</label>
-                    <select id="select-malla-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
-                        <option value="0">Ninguna (Sin malla)</option>
-                        <option value="1">Malla Misión 1</option>
-                        <option value="2">Malla Misión 2</option>
-                        <option value="3">Malla Misión 3</option>
-                    </select>
-                </div>
-
-                <div class="mb-4 bg-gray-700 p-3 rounded">
-                    <label class="block text-sm font-bold text-gray-300 mb-2">Fondo Nº (0 = Transparente):</label>
-                    <input type="number" id="fondoIA-__SLOT__" min="0" max="25" value="0" class="w-full p-2 bg-gray-600 rounded text-white font-bold text-center">
-                </div>
-
-                <div class="mb-6 bg-gray-700 p-3 rounded">
-                    <label class="block text-sm font-bold text-gray-300 mb-2">
-                        Nivel / Fuerza (Armonización y Restauración): <span id="valorFidelidad-__SLOT__" class="text-blue-400">0.7</span>
-                    </label>
-                    <input type="range" id="fidelidadIA-__SLOT__" min="0.1" max="1.0" step="0.1" value="0.7" class="w-full cursor-pointer">
-                </div>
-
-                <button id="btnEnviar-__SLOT__" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg">
-                    Enviar Tarea al Servidor de la Pestaña __SLOT__
-                </button>
-
-                <div id="estado-__SLOT__" class="mt-4 text-center font-bold text-yellow-400 hidden">Iniciando...</div>
-
-                <!-- PANEL DE ENERGÍA DEL SERVIDOR (Fuera del botón) -->
-                <div class="mt-8 border-t border-gray-600 pt-4">
-                    <div class="flex justify-between items-center mb-3">
-                        <h3 class="text-sm font-bold text-gray-400">Gestión del Servidor · Pestaña __SLOT__</h3>
-                        <button id="btnConfigurarURLs-__SLOT__" class="text-gray-400 hover:text-white text-xs underline transition">⚙️ Configurar URL</button>
-                    </div>
-
-                    <div class="flex flex-col gap-3">
-                        <!-- Botones Principales -->
-                        <div class="flex justify-between gap-2">
-                            <button id="btnPrender-__SLOT__" class="w-full bg-green-900 hover:bg-green-800 text-xs text-white py-2 rounded font-bold shadow transition">🟢 Iniciar Servidor (Kaggle CPU)</button>
-                            <button id="btnApagar-__SLOT__" class="w-24 bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow transition">🔴 Apagar</button>
-                        </div>
-
-                        <!-- Barra de Carga (progreso REAL reportado por los logs del notebook de Kaggle) -->
-                        <div id="contenedorCarga-__SLOT__" class="hidden w-full flex-col items-center bg-gray-800 p-3 rounded border border-gray-600 shadow-inner">
-                            <div class="flex justify-between w-full mb-1">
-                                <span id="textoCarga-__SLOT__" class="text-xs text-blue-400 font-bold animate-pulse">Conectando con Kaggle...</span>
-                                <span id="porcentajeCarga-__SLOT__" class="text-xs text-gray-300 font-bold">0%</span>
-                            </div>
-                            <div class="w-full bg-gray-900 rounded-full h-3">
-                                <div id="barraCarga-__SLOT__" class="bg-blue-500 h-3 rounded-full transition-all duration-700 ease-out" style="width: 0%"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- COLUMNA DERECHA: HISTORIAL PERSISTENTE (independiente por pestaña) -->
-            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col h-[850px]">
-                <h2 class="text-xl font-bold mb-4 text-green-400">📂 Historial de Trabajos · Pestaña __SLOT__</h2>
-                <div id="contenedorHistorial-__SLOT__" class="overflow-y-auto flex-1 pr-2 space-y-4"></div>
-            </div>
-        </div>
-    </template>
-
-    <!-- Scripts de Firebase y Lógica -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
-        // 🔥 Importamos Realtime Database en vez de Firestore
-        import { getDatabase, ref, push, onValue, update, set, get, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
-
-        const firebaseConfig = {
-            apiKey: "AIzaSyDP1vPBXFQkvzx1YIbTCziOzXDRxQ6a_kM",
-            authDomain: "botartes.firebaseapp.com",
-            databaseURL: "https://botartes-default-rtdb.firebaseio.com", // <-- AÑADIDO
-            projectId: "botartes",
-            messagingSenderId: "513493472800",
-            appId: "1:513493472800:web:55b4aed3c9ae1435aa0e45"
-        };
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app); // Ahora usamos getDatabase
-        const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0"; // ya no se usa para subir, se deja por si acaso
-
-        // 📤 Sube un archivo/blob a Google Drive a través del Apps Script (doPost,
-        // action "upload"), en vez de a ImgBB. Kaggle tiene que descargar estas
-        // imágenes, y las IPs de datacenter de Kaggle suelen quedar bloqueadas
-        // silenciosamente por ImgBB (conexión abierta que nunca entrega datos).
-        // Drive no tiene ese problema porque ya usamos ese mismo canal para
-        // subir los resultados finales sin fallos.
-        async function subirADrive(archivoOBlob, slotActual, nombreArchivo) {
-            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slotActual}`);
-            if (!urlWebHook) throw new Error("No hay URL de Apps Script guardada para este slot.");
-
-            const base64Completo = await new Promise((resolve, reject) => {
-                const lector = new FileReader();
-                lector.onload = () => resolve(lector.result.split(",")[1]);
-                lector.onerror = () => reject(new Error("No se pudo leer el archivo para subirlo."));
-                lector.readAsDataURL(archivoOBlob);
-            });
-
-            const respuesta = await fetch(urlWebHook, {
-                method: "POST",
-                body: JSON.stringify({
-                    action: "upload",
-                    filename: nombreArchivo || (archivoOBlob.name || "imagen.jpg"),
-                    mimetype: archivoOBlob.type || "image/jpeg",
-                    base64: base64Completo
-                })
-            });
-            const textoCrudo = await respuesta.text();
-            let datos;
-            try {
-                datos = JSON.parse(textoCrudo);
-            } catch (e) {
-                // Google devolvió HTML en vez de JSON: casi siempre es que el
-                // despliegue de Apps Script no tiene una "Nueva versión" publicada
-                // con el código actual, o el acceso no está en "Cualquier usuario".
-                console.error("Respuesta cruda de Apps Script (no es JSON):", textoCrudo.slice(0, 500));
-                throw new Error(
-                    "Google Apps Script devolvió una página en vez de JSON (probablemente falta " +
-                    "publicar una 'Nueva versión' del despliegue, o el acceso no es 'Cualquier usuario'). " +
-                    "Detalle: " + textoCrudo.slice(0, 150)
-                );
-            }
-            if (!datos.success) throw new Error("Falló subida a Google Drive: " + (datos.error || "sin detalle"));
-            return datos; // { success, url, fileId }
-        }
-
-        const SLOTS = [1, 2, 3, 4, 5];
-        // Si no llega ninguna señal nueva del notebook en este tiempo, lo consideramos
-        // "sin conexión" aunque el último dato guardado diga que estaba escuchando.
-        const UMBRAL_INACTIVIDAD_MS = 40000;
-
-        // Estado independiente por cada pestaña/slot
-        const estado = {};
-        SLOTS.forEach(s => {
-            estado[s] = {
-                historialTareas: JSON.parse(localStorage.getItem(`tareasIA_${s}`)) || [],
-                cropperInstance: null,
-                datosRecorte: null,
-                urlOriginalImagen: "",
-                urlSinFondo: "",
-                extraX: 0,
-                extraY: 0,
-                dibujando: false,
-                unsubServidor: null,
-                ultimoServidorDatos: null,
-                ultimoServidorMillis: null
-            };
-        });
-
-        function el(id, slot) { return document.getElementById(`${id}-${slot}`); }
-
-        // Tamaños de impresión disponibles, en cm (ancho x alto), usados para
-        // bloquear la proporción del recorte manual y mostrar los "numeritos" en vivo.
-        const DIMENSIONES_CM = {
-            "16x22": [16, 22],
-            "20x27": [20, 27],
-            "30x42": [30, 42],
-            "40x50": [40, 50],
-            "50x60": [50, 60],
-        };
-
-        // ==========================================
-        // 1. CONSTRUIR LAS 5 PESTAÑAS Y SUS PANELES
-        // ==========================================
-        const barraPestañas = document.getElementById("barraPestañas");
-        const panelesContenedor = document.getElementById("panelesContenedor");
-        const plantilla = document.getElementById("plantillaPanel").innerHTML;
-
-        SLOTS.forEach(slot => {
-            // Botón de pestaña
-            const btnTab = document.createElement("button");
-            btnTab.id = `tab-${slot}`;
-            btnTab.className = "flex-1 min-w-[90px] py-2 rounded-lg text-sm font-bold transition-colors " +
-                (slot === 1 ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600");
-            btnTab.textContent = `Pestaña ${slot}`;
-            btnTab.addEventListener("click", () => cambiarPestaña(slot));
-            barraPestañas.appendChild(btnTab);
-
-            // Panel clonado desde la plantilla
-            const panel = document.createElement("div");
-            panel.id = `panel-${slot}`;
-            panel.className = slot === 1 ? "" : "hidden";
-            panel.innerHTML = plantilla.replaceAll("__SLOT__", slot);
-            panelesContenedor.appendChild(panel);
-        });
-
-        window.cambiarPestaña = function(slot) {
-            SLOTS.forEach(s => {
-                document.getElementById(`panel-${s}`).classList.toggle("hidden", s !== slot);
-                const tab = document.getElementById(`tab-${s}`);
-                tab.className = "flex-1 min-w-[90px] py-2 rounded-lg text-sm font-bold transition-colors " +
-                    (s === slot ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600");
-            });
-        };
-
-        // ==========================================
-        // 2. PERSISTENCIA Y RENDER DE HISTORIAL (por slot)
-        // ==========================================
-        function guardarEnLocalStorage(slot) {
-            localStorage.setItem(`tareasIA_${slot}`, JSON.stringify(estado[slot].historialTareas));
-            renderizarHistorial(slot);
-        }
-
-        window.eliminarTarea = async function(slot, id, driveId, driveIdMalla) {
-            if (confirm("¿Estás seguro de que quieres ocultar este trabajo y eliminar permanentemente las imágenes de tu Google Drive?")) {
-                const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
-                if (urlWebHook) {
-                    if (driveId && driveId !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveId }) });
-                    if (driveIdMalla && driveIdMalla !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveIdMalla }) });
-                }
-                estado[slot].historialTareas = estado[slot].historialTareas.filter(t => t.id !== id);
-                guardarEnLocalStorage(slot);
-            }
-        };
-
-        window.cargarImagenEnLienzo = async function(slot, url) {
-            const txtEstado = el("estado", slot);
-            txtEstado.innerText = "Transfiriendo imagen al panel...";
-            txtEstado.classList.remove("hidden");
-            try {
-                const proxyUrl = "https://wsrv.nl/?url=" + encodeURIComponent(url) + "&output=jpg";
-                const response = await fetch(proxyUrl);
-                if (!response.ok) throw new Error("Fallo en la transferencia");
-                const blob = await response.blob();
-                const file = new File([blob], "imagen_editada.jpg", { type: "image/jpeg" });
-                const dataTransfer = new DataTransfer();
-                dataTransfer.items.add(file);
-                el("archivo", slot).files = dataTransfer.files;
-                el("archivo", slot).dispatchEvent(new Event('change'));
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-            } catch (error) {
-                alert("Drive bloqueó la red. Por favor, mantén presionada la imagen, guárdala y súbela desde tu galería.");
-            } finally {
-                txtEstado.classList.add("hidden");
-            }
-        };
-
-        // ==========================================
-        // 3. ENCENDIDO/APAGADO DE SERVIDOR + PROGRESO REAL
-        //    El progreso se lee en vivo desde Firestore:
-        //    servidores/slot_{n}, documento que el propio
-        //    notebook de Kaggle actualiza en cada paso de sus logs
-        //    (incluye un "latido" cada 10s aunque no haya tareas).
-        // ==========================================
-
-        // Pinta la barra/estado de un slot a partir de los últimos datos conocidos.
-        // Se llama tanto cuando llega un snapshot nuevo como periódicamente,
-        // para poder detectar "se dejó de recibir señal" sin esperar un cambio en Firestore.
-        function pintarEstadoServidor(slot, datos) {
-            const contenedorCarga = el("contenedorCarga", slot);
-            const barraCarga = el("barraCarga", slot);
-            const porcentajeCarga = el("porcentajeCarga", slot);
-            const textoCarga = el("textoCarga", slot);
-            const btnArrancar = el("btnPrender", slot);
-
-            contenedorCarga.classList.remove("hidden");
-
-            const progreso = Math.max(0, Math.min(100, Number(datos.progreso) || 0));
-            barraCarga.style.width = `${progreso}%`;
-            porcentajeCarga.innerText = `${progreso}%`;
-
-            const ultimaMarca = estado[slot].ultimoServidorMillis || Date.now();
-            const haceMs = Date.now() - ultimaMarca;
-            const seguiaActivo = ['escuchando', 'procesando', 'iniciando'].includes(datos.estado);
-            const sinSeñal = seguiaActivo && haceMs > UMBRAL_INACTIVIDAD_MS;
-
-            let mensaje = datos.mensaje || '';
-            if (sinSeñal) {
-                mensaje = `⚫ Sin señal hace ${Math.round(haceMs / 1000)}s (puede que el notebook se haya detenido) · último mensaje: ${mensaje}`;
-            }
-            textoCarga.innerText = mensaje;
-
-            textoCarga.classList.remove("animate-pulse", "text-blue-400", "text-green-400", "text-red-400", "text-gray-400");
-            if (sinSeñal) {
-                textoCarga.classList.add("text-gray-400");
-                btnArrancar.disabled = false;
-                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
-            } else if (datos.estado === 'escuchando') {
-                textoCarga.classList.add("text-green-400");
-                btnArrancar.disabled = false;
-                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
-            } else if (datos.estado === 'error') {
-                textoCarga.classList.add("text-red-400");
-                btnArrancar.disabled = false;
-                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
-            } else if (datos.estado === 'apagado') {
-                textoCarga.classList.add("text-gray-400");
-                btnArrancar.disabled = false;
-                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
-            } else {
-                // iniciando / procesando: pulso azul con el progreso real
-                textoCarga.classList.add("animate-pulse", "text-blue-400");
-                btnArrancar.disabled = true;
-                btnArrancar.classList.add('opacity-50', 'cursor-not-allowed');
-            }
-        }
-
-        // Confirmación en DOS pasos para encender un servidor duplicado.
-        // A propósito NO usa confirm() nativo: en celular, el botón "Aceptar"
-        // del confirm nativo a veces queda debajo del dedo justo después de
-        // tocar "Iniciar Servidor", y un toque accidental lo confirma solo.
-        // Acá el botón cambia de texto/color y hay que tocarlo DE NUEVO
-        // dentro de 6 segundos, si no se cancela solo.
-        function confirmarEncenderDuplicado(slot, segundos, estadoActual) {
-            return new Promise((resolve) => {
-                const btnOriginal = el("btnPrender", slot);
-                const textoOriginal = btnOriginal.innerText;
-                const claseOriginal = btnOriginal.className;
-
-                // Clonamos el botón: esto QUITA el listener original de
-                // "click" (el que llama a prenderServidor normal), así el
-                // próximo toque SOLO puede disparar la confirmación, nunca
-                // los dos a la vez.
-                const btnConfirmacion = btnOriginal.cloneNode(true);
-                btnConfirmacion.innerText = `⚠️ Ya hay uno activo (hace ${segundos}s). Tocá de nuevo para confirmar`;
-                btnConfirmacion.className = claseOriginal.replace('bg-green-900', 'bg-orange-600').replace('hover:bg-green-800', 'hover:bg-orange-500');
-                btnOriginal.parentNode.replaceChild(btnConfirmacion, btnOriginal);
-
-                let resuelto = false;
-                const restaurarBotonNormal = () => {
-                    const btnNuevoNormal = btnConfirmacion.cloneNode(true);
-                    btnNuevoNormal.innerText = textoOriginal;
-                    btnNuevoNormal.className = claseOriginal;
-                    btnConfirmacion.parentNode.replaceChild(btnNuevoNormal, btnConfirmacion);
-                    btnNuevoNormal.addEventListener("click", () => prenderServidor(slot));
-                };
-
-                btnConfirmacion.addEventListener("click", () => {
-                    if (resuelto) return;
-                    resuelto = true;
-                    clearTimeout(temporizador);
-                    restaurarBotonNormal();
-                    resolve(true);
-                }, { once: true });
-
-                const temporizador = setTimeout(() => {
-                    if (resuelto) return;
-                    resuelto = true;
-                    restaurarBotonNormal();
-                    resolve(false);
-                }, 6000);
-            });
-        }
-
-        window.prenderServidor = async function(slot, forzar = false) {
-            const refServidor = ref(db, `servidores/slot_${slot}`);
-
-            // Guardia anti-duplicados: si ya hay una señal reciente y viva,
-            // confirmamos antes de lanzar OTRO notebook en Kaggle.
-            if (!forzar) {
-                try {
-                    const snap = await get(refServidor);
-                    if (snap.exists()) {
-                        const datos = snap.val();
-                        const haceMs = datos.actualizado ? (Date.now() - datos.actualizado) : Infinity;
-                        const activo = haceMs < UMBRAL_INACTIVIDAD_MS && ['escuchando', 'procesando', 'iniciando'].includes(datos.estado);
-                        if (activo) {
-                            const segundos = Math.round(haceMs / 1000);
-                            const confirmado = await confirmarEncenderDuplicado(slot, segundos, datos.estado);
-                            if (!confirmado) return;
-                        }
-                    }
-                } catch (err) {
-                    // si falla la lectura previa, no bloqueamos el encendido
-                }
-            }
-
-            const btnArrancar = el("btnPrender", slot);
-            btnArrancar.disabled = true;
-            btnArrancar.classList.add('opacity-50', 'cursor-not-allowed');
-
-            const contenedorCarga = el("contenedorCarga", slot);
-            const barraCarga = el("barraCarga", slot);
-            const porcentajeCarga = el("porcentajeCarga", slot);
-            const textoCarga = el("textoCarga", slot);
-
-            contenedorCarga.classList.remove("hidden");
-            barraCarga.style.width = "2%";
-            porcentajeCarga.innerText = "2%";
-            textoCarga.innerText = "🚀 Enviando orden a Kaggle...";
-            textoCarga.className = "text-xs text-blue-400 font-bold animate-pulse";
-
-            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
-            if (!urlWebHook) {
-                alert(`Configura la URL de Apps Script de la Pestaña ${slot} primero en '⚙️ Configurar URL'.`);
-                btnArrancar.disabled = false;
-                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
-                return;
-            }
-
-            try {
-                // Reseteamos el documento ANTES de avisarle a Kaggle: así nunca
-                // se ve el estado "listo" de una sesión vieja mientras el
-                // notebook nuevo todavía está instalando cosas.
-                estado[slot].ultimoServidorMillis = Date.now();
-                await set(refServidor, {
-                    estado: 'iniciando',
-                    progreso: 2,
-                    mensaje: '🚀 Orden enviada. Esperando que Kaggle arranque el notebook (puede tardar 1-3 min en llegar la primera señal real)...',
-                    tarea_actual: null,
-                    sesion: null,
-                    actualizado: serverTimestamp()
-                });
-
-                fetch(urlWebHook + "?tipo=cpu&slot=" + slot, { mode: 'no-cors' });
-                // La escucha del progreso ya está activa desde que se abrió la pestaña
-                // (ver inicializarPanel), así que no hace falta re-suscribirse aquí.
-            } catch (error) {
-                textoCarga.innerText = "❌ Error de conexión";
-                btnArrancar.disabled = false;
-                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
-            }
-        };
-
-        window.apagarServidor = async function(slot) {
-            if (!confirm(`¿Seguro que quieres apagar el servidor de la Pestaña ${slot}?`)) return;
-            try {
-                await set(push(ref(db, "tareas_ia")), { estado: "pendiente", comando: "apagar_servidor", slot: String(slot), fecha: new Date().toISOString() });
-                alert(`Orden de apagado encolada para la Pestaña ${slot}. El servidor se detendrá pronto.`);
-            } catch (error) {
-                alert("Error enviando orden de apagado.");
-            }
-        };
-
-        // ==========================================
-        // 4. HISTORIAL (independiente por slot)
-        // ==========================================
-        function renderizarHistorial(slot) {
-            const contenedor = el("contenedorHistorial", slot);
-            contenedor.innerHTML = "";
-            estado[slot].historialTareas.forEach(tarea => {
-                let colorEstado = tarea.estado === 'completado' ? 'text-green-400' : (tarea.estado === 'error' ? 'text-red-500' : 'text-yellow-400');
-                let htmlImg = "";
-                let botonesAccion = "";
-
-                if (tarea.estado === 'completado') {
-                    if (tarea.urlResultado) {
-                        let imgId = tarea.urlResultado.split('id=')[1];
-                        let urlVisualizacion = `https://drive.google.com/thumbnail?id=${imgId}&sz=w1000`;
-
-                        if (tarea.urlResultadoMalla) {
-                            let imgIdMalla = tarea.urlResultadoMalla.split('id=')[1];
-                            let urlVisualizacionMalla = `https://drive.google.com/thumbnail?id=${imgIdMalla}&sz=w1000`;
-                            htmlImg = `
-                            <div class="grid grid-cols-2 gap-2 mt-2">
-                                <a href="${tarea.urlResultado}" target="_blank">
-                                    <div class="text-[10px] text-center text-gray-400 mb-1">Corte Original</div>
-                                    <img src="${urlVisualizacion}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
-                                </a>
-                                <a href="${tarea.urlResultadoMalla}" target="_blank">
-                                    <div class="text-[10px] text-center text-gray-400 mb-1">Con Malla</div>
-                                    <img src="${urlVisualizacionMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
-                                </a>
-                            </div>`;
-                        } else {
-                            htmlImg = `<a href="${tarea.urlResultado}" target="_blank"><img src="${urlVisualizacion}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
-                        }
-                        botonesAccion = `
-                        <div class="flex gap-2 mt-3">
-                            <button onclick="cargarImagenEnLienzo(${slot}, '${urlVisualizacion}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
-                            <button onclick="eliminarTarea(${slot}, '${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
-                        </div>`;
-                    }
-                } else {
-                    htmlImg = `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
-                    botonesAccion = `
-                    <div class="flex gap-2 mt-3">
-                        <button onclick="eliminarTarea(${slot}, '${tarea.id}')" class="w-full bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow">🗑️ Eliminar</button>
-                    </div>`;
-                }
-
-                contenedor.innerHTML += `
-                    <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 shadow relative">
-                        <div class="flex justify-between items-start">
-                            <div>
-                                <p class="text-[10px] text-gray-400">ID: ${tarea.id.slice(0,6)}</p>
-                                <p class="text-sm font-bold text-white capitalize">${tarea.comando.replace(/_/g, ' ')}</p>
-                            </div>
-                            <span class="text-xs font-bold ${colorEstado} uppercase bg-gray-800 px-2 py-1 rounded border border-gray-700">${tarea.estado}</span>
-                        </div>
-                        ${htmlImg}
-                        ${botonesAccion}
-                    </div>
-                `;
-            });
-        }
-
-        function reconectarPendientes(slot) {
-            estado[slot].historialTareas.forEach((tarea, index) => {
-                if (tarea.estado === 'pendiente' || tarea.estado === 'procesando') {
-                    const unsubscribe = onValue(ref(db, `tareas_ia/${tarea.id}`), (documento) => {
-                        const datos = documento.val();
-                        if (datos && (datos.estado === "completado" || datos.estado === "error")) {
-                            estado[slot].historialTareas[index].estado = datos.estado;
-                            if (datos.estado === "completado") {
-                                estado[slot].historialTareas[index].urlResultado = datos.url_resultado;
-                                estado[slot].historialTareas[index].driveId = datos.drive_id;
-                                if (datos.url_resultado_malla) {
-                                    estado[slot].historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
-                                    estado[slot].historialTareas[index].driveIdMalla = datos.drive_id_malla;
-                                }
-                                // Si la tarea era "cortar sin fondo", guardamos su resultado
-                                // (PNG transparente) para poder probar fondos rápido después.
-                                if (estado[slot].historialTareas[index].comando === "cortar_sin_fondo" && datos.url_resultado) {
-                                    estado[slot].urlSinFondo = datos.url_resultado;
-                                    el("probadorFondos", slot).classList.remove("hidden");
-                                }
-                            }
-                            guardarEnLocalStorage(slot);
-                            unsubscribe();
-                        } else if (datos) {
-                            estado[slot].historialTareas[index].estado = datos.estado;
-                            guardarEnLocalStorage(slot);
-                        }
-                    });
-                }
-            });
-        }
-
-        // ==========================================
-        // 5. INICIALIZACIÓN DE CADA PANEL (lienzo, cropper, envío)
-        // ==========================================
-        function inicializarPanel(slot) {
-            renderizarHistorial(slot);
-            reconectarPendientes(slot);
-
-            el("fidelidadIA", slot).addEventListener("input", function() {
-                el("valorFidelidad", slot).innerText = this.value;
-            });
-
-            el("btnPrender", slot).addEventListener("click", () => prenderServidor(slot));
-            el("btnApagar", slot).addEventListener("click", () => apagarServidor(slot));
-
-            // -------- Escucha permanente del estado real del servidor --------
-            // Se conecta desde que se abre la pestaña (no solo al apretar "Encender"),
-            // para que nunca se desincronice si salís y volvés a entrar al panel.
-            const refServidor = ref(db, `servidores/slot_${slot}`);
-            estado[slot].unsubServidor = onValue(refServidor, (snap) => {
-                if (!snap.exists()) return;
-                const datos = snap.val();
-                estado[slot].ultimoServidorDatos = datos;
-                estado[slot].ultimoServidorMillis = datos.actualizado || Date.now();
-                pintarEstadoServidor(slot, datos);
-            });
-
-            // Revisa cada 5s si dejó de llegar señal (latido), aunque RTDB
-            // no dispare un evento nuevo (el notebook pudo simplemente caerse).
-            setInterval(() => {
-                if (estado[slot].ultimoServidorDatos) pintarEstadoServidor(slot, estado[slot].ultimoServidorDatos);
-            }, 5000);
-
-            // -------- Lienzo y Cropper (recorte manual) --------
-            const inputArchivo = el("archivo", slot);
-            const contenedorLienzo = el("contenedorLienzo", slot);
-            const controlesPincel = el("controlesPincel", slot);
-            const controlesEdicion = el("controlesEdicion", slot);
-            const imgFondo = el("imgFondo", slot);
-            const canvas = el("lienzoDibujo", slot);
-            const ctx = canvas.getContext("2d");
-            const grosorPincel = el("grosorPincel", slot);
-
-            inputArchivo.addEventListener("change", (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-
-                const reader = new FileReader();
-                reader.onload = (event) => {
-                    estado[slot].urlOriginalImagen = event.target.result;
-                    imgFondo.src = estado[slot].urlOriginalImagen;
-
-                    imgFondo.addEventListener("load", () => {
-                        contenedorLienzo.classList.remove("hidden");
-                        controlesPincel.classList.remove("hidden");
-                        controlesEdicion.classList.remove("hidden");
-
-                        canvas.width = imgFondo.naturalWidth;
-                        canvas.height = imgFondo.naturalHeight;
-                        ctx.clearRect(0, 0, canvas.width, canvas.height);
-                        ctx.lineCap = "round";
-                        ctx.lineJoin = "round";
-                        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-
-                        estado[slot].datosRecorte = null;
-                        canvas.classList.remove("hidden");
-                    }, { once: true });
-                };
-                reader.readAsDataURL(file);
-            });
-
-            const btnActivarRecorte = el("btnActivarRecorte", slot);
-            const btnAplicarRecorte = el("btnAplicarRecorte", slot);
-            const btnCancelarRecorte = el("btnCancelarRecorte", slot);
-
-            btnActivarRecorte.addEventListener("click", () => {
-                if (estado[slot].cropperInstance) return;
-                canvas.classList.add("hidden");
-                controlesPincel.classList.add("hidden");
-
-                const canvasFalso = document.createElement("canvas");
-                estado[slot].extraX = imgFondo.naturalWidth * 0.5;
-                estado[slot].extraY = imgFondo.naturalHeight * 0.5;
-
-                canvasFalso.width = imgFondo.naturalWidth + (estado[slot].extraX * 2);
-                canvasFalso.height = imgFondo.naturalHeight + (estado[slot].extraY * 2);
-
-                const ctxFalso = canvasFalso.getContext("2d");
-                ctxFalso.drawImage(imgFondo, estado[slot].extraX, estado[slot].extraY);
-
-                imgFondo.addEventListener("load", () => {
-                    const dimensionElegida = el("select-dimension", slot).value;
-                    const par = DIMENSIONES_CM[dimensionElegida]; // [ancho_cm, alto_cm] o undefined si "original"
-                    const guia = el("guiaRecorte", slot);
-
-                    const opcionesCropper = {
-                        viewMode: 0,
-                        autoCropArea: 0.5,
-                        background: true,
-                        minContainerHeight: 350,
-                        responsive: true,
-                    };
-                    if (par) {
-                        opcionesCropper.aspectRatio = par[0] / par[1]; // fuerza SIEMPRE la proporción correcta
-                        guia.classList.remove("hidden");
-                        guia.innerText = `📐 Recorte bloqueado a proporción ${dimensionElegida.replace('x', ' x ')} cm — movelo/agrandalo hasta centrar a la persona.`;
-                    } else {
-                        guia.classList.add("hidden");
-                    }
-
-                    estado[slot].cropperInstance = new Cropper(imgFondo, opcionesCropper);
-
-                    if (par) {
-                        // Actualiza los "numeritos" en vivo: tamaño real aproximado (a 300dpi,
-                        // el estándar de imprenta) del recorte actual, para juzgar la resolución.
-                        imgFondo.addEventListener("crop", (ev) => {
-                            const DPI = 300;
-                            const anchoCm = (ev.detail.width / DPI * 2.54).toFixed(1);
-                            const altoCm = (ev.detail.height / DPI * 2.54).toFixed(1);
-                            guia.innerText = `📐 Recorte actual ≈ ${anchoCm} x ${altoCm} cm (a 300dpi) — proporción fija ${dimensionElegida.replace('x', ' x ')} cm.`;
-                        });
-                    }
-
-                    btnActivarRecorte.classList.add("hidden");
-                    btnAplicarRecorte.classList.remove("hidden");
-                    btnCancelarRecorte.classList.remove("hidden");
-                }, { once: true });
-                imgFondo.src = canvasFalso.toDataURL("image/png");
-            });
-
-            btnCancelarRecorte.addEventListener("click", () => {
-                if (estado[slot].cropperInstance) { estado[slot].cropperInstance.destroy(); estado[slot].cropperInstance = null; }
-                el("guiaRecorte", slot).classList.add("hidden");
-                imgFondo.addEventListener("load", () => {
-                    canvas.classList.remove("hidden");
-                    controlesPincel.classList.remove("hidden");
-                    btnActivarRecorte.classList.remove("hidden");
-                    btnAplicarRecorte.classList.add("hidden");
-                    btnCancelarRecorte.classList.add("hidden");
-                }, { once: true });
-                imgFondo.src = estado[slot].urlOriginalImagen;
-            });
-
-            btnAplicarRecorte.addEventListener("click", () => {
-                if (!estado[slot].cropperInstance) return;
-                const datosFalsos = estado[slot].cropperInstance.getData(true);
-                estado[slot].datosRecorte = {
-                    x: datosFalsos.x - estado[slot].extraX,
-                    y: datosFalsos.y - estado[slot].extraY,
-                    width: datosFalsos.width,
-                    height: datosFalsos.height
-                };
-                estado[slot].cropperInstance.destroy();
-                estado[slot].cropperInstance = null;
-                el("guiaRecorte", slot).classList.add("hidden");
-
-                imgFondo.addEventListener("load", () => {
-                    canvas.classList.remove("hidden");
-                    controlesPincel.classList.remove("hidden");
-                    btnActivarRecorte.classList.remove("hidden");
-                    btnAplicarRecorte.classList.add("hidden");
-                    btnCancelarRecorte.classList.add("hidden");
-                    alert("✅ Coordenadas expansivas guardadas. ¡El servidor armará el nuevo tamaño!");
-                }, { once: true });
-                imgFondo.src = estado[slot].urlOriginalImagen;
-            });
-
-            canvas.addEventListener("mousedown", (e) => { estado[slot].dibujando = true; pintar(e); });
-            canvas.addEventListener("mouseup", () => { estado[slot].dibujando = false; ctx.beginPath(); });
-            canvas.addEventListener("mousemove", pintar);
-            canvas.addEventListener("mouseleave", () => { estado[slot].dibujando = false; ctx.beginPath(); });
-
-            canvas.addEventListener("touchstart", (e) => { estado[slot].dibujando = true; pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
-            canvas.addEventListener("touchend", () => { estado[slot].dibujando = false; ctx.beginPath(); });
-            canvas.addEventListener("touchmove", (e) => { pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
-
-            function pintar(e) {
-                if (!estado[slot].dibujando) return;
-                const rect = canvas.getBoundingClientRect();
-                const scaleX = canvas.width / rect.width;
-                const scaleY = canvas.height / rect.height;
-                const x = (e.clientX - rect.left) * scaleX;
-                const y = (e.clientY - rect.top) * scaleY;
-                ctx.lineWidth = grosorPincel.value * scaleX;
-                ctx.lineTo(x, y);
-                ctx.stroke();
-                ctx.beginPath();
-                ctx.moveTo(x, y);
-            }
-
-            el("btnLimpiar", slot).addEventListener("click", () => {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-            });
-
-            // -------- Mostrar/ocultar el selector de "rostro original" --------
-            const contenedorRostroRef = el("contenedorRostroRef", slot);
-            const selectComando = el("comando", slot);
-            function actualizarVisibilidadRostroRef() {
-                if (selectComando.value === "restaurar_rostro_logo") {
-                    contenedorRostroRef.classList.remove("hidden");
-                } else {
-                    contenedorRostroRef.classList.add("hidden");
-                }
-            }
-            selectComando.addEventListener("change", actualizarVisibilidadRostroRef);
-            actualizarVisibilidadRostroRef();
-
-            function obtenerMascaraBlob() {
-                return new Promise(resolve => {
-                    const maskCanvas = document.createElement("canvas");
-                    maskCanvas.width = canvas.width;
-                    maskCanvas.height = canvas.height;
-                    const mCtx = maskCanvas.getContext("2d");
-
-                    mCtx.fillStyle = "black";
-                    mCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
-                    mCtx.drawImage(canvas, 0, 0);
-
-                    const imgData = mCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
-                    for (let i = 0; i < imgData.data.length; i += 4) {
-                        if (imgData.data[i] > 0) {
-                            imgData.data[i] = 255;
-                            imgData.data[i+1] = 255;
-                            imgData.data[i+2] = 255;
-                            imgData.data[i+3] = 255;
-                        }
-                    }
-                    mCtx.putImageData(imgData, 0, 0);
-                    maskCanvas.toBlob(resolve, "image/png");
-                });
-            }
-
-            function hayAlgoPintado() {
-                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                for (let i = 3; i < imgData.data.length; i += 4) {
-                    if (imgData.data[i] > 0) return true;
-                }
-                return false;
-            }
-
-            // -------- Envío de tareas (etiquetadas con el slot de esta pestaña) --------
-            const btnEnviar = el("btnEnviar", slot);
-            const txtEstado = el("estado", slot);
-
-            btnEnviar.addEventListener("click", async () => {
-                const archivo = inputArchivo.files[0];
-                const comando = el("comando", slot).value;
-                const dimensionElegida = el("select-dimension", slot).value;
-                const mallaElegida = el("select-malla", slot).value;
-
-                if (!archivo) return alert("Sube una imagen primero");
-
-                if (comando === "restaurar_rostro_logo" && !el("archivoRostro", slot).files[0]) {
-                    return alert("Sube la foto con el rostro ORIGINAL que quieres mantener.");
-                }
-
-                btnEnviar.disabled = true;
-                btnEnviar.classList.replace("bg-blue-600", "bg-gray-600");
-                txtEstado.classList.remove("hidden");
-                txtEstado.innerText = "Subiendo imagen a la nube...";
-
-                try {
-                    const dataOrig = await subirADrive(archivo, slot, archivo.name);
-                    let urlOriginal = dataOrig.url;
-                    let urlMascara = "";
-                    let urlRostroReferencia = "";
-
-                    if (comando === "armonizar_color") {
-                        txtEstado.innerText = "Subiendo máscara térmica...";
-                        const blobMascara = await obtenerMascaraBlob();
-                        const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
-                        urlMascara = dataMascara.url;
-                    }
-
-                    if (comando === "restaurar_rostro_logo") {
-                        txtEstado.innerText = "Subiendo foto de referencia del rostro...";
-                        const archivoRostro = el("archivoRostro", slot).files[0];
-                        const dataRostro = await subirADrive(archivoRostro, slot, archivoRostro.name);
-                        urlRostroReferencia = dataRostro.url;
-
-                        // La máscara del logo es opcional: solo se sube si el usuario pintó algo con el pincel.
-                        if (hayAlgoPintado()) {
-                            txtEstado.innerText = "Subiendo máscara del logo a borrar...";
-                            const blobMascara = await obtenerMascaraBlob();
-                            const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
-                            urlMascara = dataMascara.url;
-                        }
-                    }
-
-                    if (comando === "recorte_manual" && !estado[slot].datosRecorte) {
-                        throw new Error("Debes usar la herramienta '✂️ Recorte Manual' y darle a '✅ Aplicar Recorte' antes de enviar.");
-                    }
-
-                    const nuevaTareaRef = push(ref(db, "tareas_ia"));
-                    await set(nuevaTareaRef, {
-                        estado: "pendiente",
-                        comando: comando,
-                        slot: String(slot),
-                        fidelidad: parseFloat(el("fidelidadIA", slot).value),
-                        fondo_id: el("fondoIA", slot).value,
-                        dimension: dimensionElegida,
-                        malla_id: mallaElegida,
-                        url_imagen: urlOriginal,
-                        url_mascara: urlMascara,
-                        url_imagen_rostro: urlRostroReferencia,
-                        crop_x: estado[slot].datosRecorte ? estado[slot].datosRecorte.x : 0,
-                        crop_y: estado[slot].datosRecorte ? estado[slot].datosRecorte.y : 0,
-                        crop_w: estado[slot].datosRecorte ? estado[slot].datosRecorte.width : 0,
-                        crop_h: estado[slot].datosRecorte ? estado[slot].datosRecorte.height : 0,
-                        fecha: new Date().toISOString()
-                    });
-
-                    let nuevaTarea = {
-                        id: nuevaTareaRef.key,
-                        comando: comando,
-                        estado: 'pendiente',
-                        urlOriginal: urlOriginal,
-                        urlResultado: null
-                    };
-                    estado[slot].historialTareas.unshift(nuevaTarea);
-                    guardarEnLocalStorage(slot);
-                    reconectarPendientes(slot);
-
-                    txtEstado.innerText = `¡Enviado al servidor de la Pestaña ${slot}! Mira el historial.`;
-                    setTimeout(() => txtEstado.classList.add("hidden"), 3000);
-
-                } catch (error) {
-                    alert(error.message);
-                } finally {
-                    btnEnviar.disabled = false;
-                    btnEnviar.classList.replace("bg-gray-600", "bg-blue-600");
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                }
-            });
-
-            el("btnConfigurarURLs", slot).addEventListener("click", () => {
-                const actualCPU = localStorage.getItem(`url_apps_script_cpu_${slot}`) || "";
-                const nuevaCPU = prompt(`Pega la URL de Apps Script (puede ser LA MISMA para las 5 pestañas, el sistema envía el número de slot automáticamente):`, actualCPU);
-                if (nuevaCPU !== null) localStorage.setItem(`url_apps_script_cpu_${slot}`, nuevaCPU.trim());
-                alert(`✅ URL guardada de forma segura en este navegador para la Pestaña ${slot}.`);
-            });
-
-            // -------- Probador rápido de fondos --------
-            // Reutiliza el PNG "sin fondo" ya cortado: el servidor NO vuelve a
-            // correr la IA de recorte, solo pega el fondo elegido, así que cada
-            // prueba tarda segundos en vez de minutos.
-            el("btnProbarFondo", slot).addEventListener("click", async () => {
-                if (!estado[slot].urlSinFondo) {
-                    return alert('Primero corré la acción "🖼️ Cortar Sin Fondo (para probar fondos)".');
-                }
-                const btn = el("btnProbarFondo", slot);
-                const fondoElegido = el("fondoPrueba", slot).value;
-                btn.disabled = true;
-                btn.innerText = "⏳ Probando...";
-                try {
-                    const nuevaTareaRef = push(ref(db, "tareas_ia"));
-                    await set(nuevaTareaRef, {
-                        estado: "pendiente",
-                        comando: "probar_fondo",
-                        slot: String(slot),
-                        fondo_id: fondoElegido,
-                        dimension: el("select-dimension", slot).value,
-                        malla_id: el("select-malla", slot).value,
-                        url_imagen: estado[slot].urlSinFondo,
-                        fecha: new Date().toISOString()
-                    });
-                    estado[slot].historialTareas.unshift({
-                        id: nuevaTareaRef.key,
-                        comando: `probar_fondo (Nº ${fondoElegido})`,
-                        estado: 'pendiente',
-                        urlOriginal: estado[slot].urlSinFondo,
-                        urlResultado: null
-                    });
-                    guardarEnLocalStorage(slot);
-                    reconectarPendientes(slot);
-                } catch (error) {
-                    alert("Error al probar el fondo: " + error.message);
-                } finally {
-                    btn.disabled = false;
-                    btn.innerText = "👁️ Probar este fondo";
-                }
-            });
-        }
-
-        SLOTS.forEach(slot => inicializarPanel(slot));
-
-    </script>
-</body>
+<!DOCTYPE html>
+
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Panel IA - Laboratorio Profesional</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+
+
+    <!-- Librería profesional para recortes (Cropper.js) -->
+
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
+</head>
+
+<body class="bg-gray-900 text-white min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+
+
+    <!-- ========================================================== -->
+
+    <!-- BARRA DE PESTAÑAS (5 servidores/paneles independientes)    -->
+
+    <!-- ========================================================== -->
+
+    <div class="w-full max-w-5xl mb-4">
+
+        <div id="barraPestañas" class="flex gap-1 bg-gray-800 p-1 rounded-xl shadow-lg overflow-x-auto"></div>
+
+    </div>
+
+
+
+    <div id="panelesContenedor" class="w-full max-w-5xl"></div>
+
+
+
+    <!-- ========================================================== -->
+
+    <!-- PLANTILLA DE UN PANEL (se clona 5 veces, una por pestaña)   -->
+
+    <!-- ========================================================== -->
+
+    <template id="plantillaPanel">
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+
+
+            <!-- COLUMNA IZQUIERDA: CONTROLES Y LIENZO -->
+
+            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl">
+
+                <h1 class="text-2xl font-bold mb-1 text-blue-400">⚡ Nueva Tarea IA</h1>
+
+                <p class="text-xs text-gray-500 mb-5">Pestaña __SLOT__ · servidor y cola independientes</p>
+
+
+
+                <input type="file" id="archivo-__SLOT__" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
+
+
+
+                <!-- Imagen de referencia del rostro original (solo para "Restaurar Rostro + Quitar Logo IA") -->
+
+                <div id="contenedorRostroRef-__SLOT__" class="hidden mb-4">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-1">📸 Foto con el rostro ORIGINAL a mantener (opcional):</label>
+
+                    <input type="file" id="archivoRostro-__SLOT__" accept="image/*" class="w-full p-2 bg-gray-700 rounded cursor-pointer">
+
+                    <p class="text-[11px] text-gray-500 mt-1">Las dos cosas son independientes y podes usar una, la otra, o ambas: 1) Si subis esta foto, se recorta el rostro y se pone en la imagen del panel. 2) Si pintas con el pincel de abajo sobre el logo de la IA (Gemini u otra), se borra ese logo. Si no subis foto, no se toca el rostro; si no pintas nada, no se toca el logo.</p>
+
+                </div>
+
+
+
+                <!-- Controles de Recorte Manual -->
+
+                <div id="controlesEdicion-__SLOT__" class="hidden flex gap-2 mb-4">
+
+                    <button id="btnActivarRecorte-__SLOT__" class="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-sm py-2 rounded font-bold shadow transition">✂️ Recorte Manual</button>
+
+                    <button id="btnAplicarRecorte-__SLOT__" class="hidden flex-1 bg-green-600 hover:bg-green-500 text-white text-sm py-2 rounded font-bold shadow transition">✅ Aplicar Recorte</button>
+
+                    <button id="btnCancelarRecorte-__SLOT__" class="hidden bg-red-600 hover:bg-red-500 text-white text-sm px-4 py-2 rounded font-bold shadow transition">❌</button>
+
+                </div>
+
+                <div id="guiaRecorte-__SLOT__" class="hidden mb-4 bg-gray-900 border border-yellow-600 text-yellow-300 text-xs font-bold p-2 rounded text-center"></div>
+
+
+
+                <!-- Probador rápido de fondos: aparece cuando ya existe un recorte "sin fondo" -->
+
+                <div id="probadorFondos-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded border border-purple-500">
+
+                    <label class="block text-sm font-bold text-purple-300 mb-2">🎨 Probador de Fondos (usa el recorte ya hecho, es rápido)</label>
+
+                    <div class="flex gap-2 mb-2">
+
+                        <input type="number" id="fondoPrueba-__SLOT__" min="0" max="25" value="1" class="w-20 p-2 bg-gray-600 rounded text-white font-bold text-center">
+
+                        <button id="btnProbarFondo-__SLOT__" class="flex-1 bg-purple-600 hover:bg-purple-500 text-white text-sm py-2 rounded font-bold shadow transition">👁️ Probar este fondo</button>
+
+                    </div>
+
+                    <p class="text-[11px] text-gray-400">Cambia el número y volvé a apretar "Probar" tantas veces como quieras — no vuelve a cortar, solo cambia el fondo. Cuando encuentres el que te gusta, usá ese número en "Fondo Nº" más abajo y enviá la tarea normal (Proceso Completo / Solo Quitar Fondo) para el resultado final.</p>
+
+                </div>
+
+
+
+                <!-- EL LIENZO DE DIBUJO -->
+
+                <div id="contenedorLienzo-__SLOT__" class="relative hidden mb-4 border-2 border-dashed border-gray-500 rounded bg-gray-900 overflow-hidden" style="-webkit-touch-callout: none;">
+
+                    <img id="imgFondo-__SLOT__" class="w-full h-auto block" src="" style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none;" draggable="false" oncontextmenu="return false;">
+
+                    <canvas id="lienzoDibujo-__SLOT__" class="absolute top-0 left-0 w-full h-full cursor-crosshair" style="touch-action: none;" oncontextmenu="return false;"></canvas>
+
+                </div>
+
+
+
+                <div id="controlesPincel-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded flex justify-between items-center">
+
+                    <span class="text-sm font-bold text-gray-300">Grosor Pincel:</span>
+
+                    <input type="range" id="grosorPincel-__SLOT__" min="5" max="50" value="20" class="w-1/2 mx-2">
+
+                    <button id="btnLimpiar-__SLOT__" class="bg-red-500 hover:bg-red-600 text-xs px-3 py-1 rounded font-bold shadow">Limpiar</button>
+
+                </div>
+
+
+
+                <label class="block text-sm font-bold text-gray-300 mb-1">Acción a realizar:</label>
+
+                <select id="comando-__SLOT__" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
+
+                    <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
+
+                    <option value="solo_encuadre">🎯 Solo Encuadre Automático</option>
+
+                    <option value="recorte_manual">📐 Recorte Manual Expansivo</option>
+
+                    <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
+
+                    <option value="solo_recortar">✂️ Solo Quitar + Cambiar Fondo</option>
+
+                    <option value="cortar_sin_fondo">🖼️ Cortar Sin Fondo (para probar fondos)</option>
+
+                    <option value="armonizar_color">🎨 Armonizar / Emparejar Color</option>
+
+                    <option value="restaurar_rostro_logo">🧑‍🎨 Restaurar Rostro Original + Quitar Logo IA</option>
+
+                </select>
+
+
+
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-2">Tamaño de Impresión (cm):</label>
+
+                    <select id="select-dimension-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
+
+                        <option value="original">Mantener Original</option>
+
+                        <option value="16x22">16 x 22 cm</option>
+
+                        <option value="20x27">20 x 27 cm</option>
+
+                        <option value="30x42">30 x 42 cm</option>
+
+                        <option value="40x50">40 x 50 cm</option>
+
+                        <option value="50x60">50 x 60 cm</option>
+
+                    </select>
+
+                </div>
+
+
+
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-2">Malla de Misión:</label>
+
+                    <select id="select-malla-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
+
+                        <option value="0">Ninguna (Sin malla)</option>
+
+                        <option value="1">Malla Misión 1</option>
+
+                        <option value="2">Malla Misión 2</option>
+
+                        <option value="3">Malla Misión 3</option>
+
+                    </select>
+
+                </div>
+
+
+
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-2">Fondo Nº (0 = Transparente):</label>
+
+                    <input type="number" id="fondoIA-__SLOT__" min="0" max="25" value="0" class="w-full p-2 bg-gray-600 rounded text-white font-bold text-center">
+
+                </div>
+
+
+
+                <div class="mb-6 bg-gray-700 p-3 rounded">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-2">
+
+                        Nivel / Fuerza (Armonización y Restauración): <span id="valorFidelidad-__SLOT__" class="text-blue-400">0.7</span>
+
+                    </label>
+
+                    <input type="range" id="fidelidadIA-__SLOT__" min="0.1" max="1.0" step="0.1" value="0.7" class="w-full cursor-pointer">
+
+                </div>
+
+
+
+                <button id="btnEnviar-__SLOT__" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg">
+
+                    Enviar Tarea al Servidor de la Pestaña __SLOT__
+
+                </button>
+
+
+
+                <div id="estado-__SLOT__" class="mt-4 text-center font-bold text-yellow-400 hidden">Iniciando...</div>
+
+
+
+                <!-- PANEL DE ENERGÍA DEL SERVIDOR (Fuera del botón) -->
+
+                <div class="mt-8 border-t border-gray-600 pt-4">
+
+                    <div class="flex justify-between items-center mb-3">
+
+                        <h3 class="text-sm font-bold text-gray-400">Gestión del Servidor · Pestaña __SLOT__</h3>
+
+                        <button id="btnConfigurarURLs-__SLOT__" class="text-gray-400 hover:text-white text-xs underline transition">⚙️ Configurar URL</button>
+
+                    </div>
+
+
+
+                    <div class="flex flex-col gap-3">
+
+                        <!-- Botones Principales -->
+
+                        <div class="flex justify-between gap-2">
+
+                            <button id="btnPrender-__SLOT__" class="w-full bg-green-900 hover:bg-green-800 text-xs text-white py-2 rounded font-bold shadow transition">🟢 Iniciar Servidor (Kaggle CPU)</button>
+
+                            <button id="btnApagar-__SLOT__" class="w-24 bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow transition">🔴 Apagar</button>
+
+                        </div>
+
+
+
+                        <!-- Barra de Carga (progreso REAL reportado por los logs del notebook de Kaggle) -->
+
+                        <div id="contenedorCarga-__SLOT__" class="hidden w-full flex-col items-center bg-gray-800 p-3 rounded border border-gray-600 shadow-inner">
+
+                            <div class="flex justify-between w-full mb-1">
+
+                                <span id="textoCarga-__SLOT__" class="text-xs text-blue-400 font-bold animate-pulse">Conectando con Kaggle...</span>
+
+                                <span id="porcentajeCarga-__SLOT__" class="text-xs text-gray-300 font-bold">0%</span>
+
+                            </div>
+
+                            <div class="w-full bg-gray-900 rounded-full h-3">
+
+                                <div id="barraCarga-__SLOT__" class="bg-blue-500 h-3 rounded-full transition-all duration-700 ease-out" style="width: 0%"></div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- COLUMNA DERECHA: HISTORIAL PERSISTENTE (independiente por pestaña) -->
+
+            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col h-[850px]">
+
+                <h2 class="text-xl font-bold mb-4 text-green-400">📂 Historial de Trabajos · Pestaña __SLOT__</h2>
+
+                <div id="contenedorHistorial-__SLOT__" class="overflow-y-auto flex-1 pr-2 space-y-4"></div>
+
+            </div>
+
+        </div>
+
+    </template>
+
+
+
+    <!-- Scripts de Firebase y Lógica -->
+
+    <script type="module">
+
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+
+        // 🔥 Importamos Realtime Database en vez de Firestore
+
+        import { getDatabase, ref, push, onValue, update, set, get, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+
+
+        const firebaseConfig = {
+
+            apiKey: "AIzaSyDP1vPBXFQkvzx1YIbTCziOzXDRxQ6a_kM",
+
+            authDomain: "botartes.firebaseapp.com",
+
+            databaseURL: "https://botartes-default-rtdb.firebaseio.com", // <-- AÑADIDO
+
+            projectId: "botartes",
+
+            messagingSenderId: "513493472800",
+
+            appId: "1:513493472800:web:55b4aed3c9ae1435aa0e45"
+
+        };
+
+        const app = initializeApp(firebaseConfig);
+
+        const db = getDatabase(app); // Ahora usamos getDatabase
+
+        const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0"; // ya no se usa para subir, se deja por si acaso
+
+
+
+        // 📤 Sube un archivo/blob a Google Drive a través del Apps Script (doPost,
+
+        // action "upload"), en vez de a ImgBB. Kaggle tiene que descargar estas
+
+        // imágenes, y las IPs de datacenter de Kaggle suelen quedar bloqueadas
+
+        // silenciosamente por ImgBB (conexión abierta que nunca entrega datos).
+
+        // Drive no tiene ese problema porque ya usamos ese mismo canal para
+
+        // subir los resultados finales sin fallos.
+
+        async function subirADrive(archivoOBlob, slotActual, nombreArchivo) {
+
+            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slotActual}`);
+
+            if (!urlWebHook) throw new Error("No hay URL de Apps Script guardada para este slot.");
+
+
+
+            const base64Completo = await new Promise((resolve, reject) => {
+
+                const lector = new FileReader();
+
+                lector.onload = () => resolve(lector.result.split(",")[1]);
+
+                lector.onerror = () => reject(new Error("No se pudo leer el archivo para subirlo."));
+
+                lector.readAsDataURL(archivoOBlob);
+
+            });
+
+
+
+            const respuesta = await fetch(urlWebHook, {
+
+                method: "POST",
+
+                body: JSON.stringify({
+
+                    action: "upload",
+
+                    filename: nombreArchivo || (archivoOBlob.name || "imagen.jpg"),
+
+                    mimetype: archivoOBlob.type || "image/jpeg",
+
+                    base64: base64Completo
+
+                })
+
+            });
+
+            const textoCrudo = await respuesta.text();
+
+            let datos;
+
+            try {
+
+                datos = JSON.parse(textoCrudo);
+
+            } catch (e) {
+
+                // Google devolvió HTML en vez de JSON: casi siempre es que el
+
+                // despliegue de Apps Script no tiene una "Nueva versión" publicada
+
+                // con el código actual, o el acceso no está en "Cualquier usuario".
+
+                console.error("Respuesta cruda de Apps Script (no es JSON):", textoCrudo.slice(0, 500));
+
+                throw new Error(
+
+                    "Google Apps Script devolvió una página en vez de JSON (probablemente falta " +
+
+                    "publicar una 'Nueva versión' del despliegue, o el acceso no es 'Cualquier usuario'). " +
+
+                    "Detalle: " + textoCrudo.slice(0, 150)
+
+                );
+
+            }
+
+            if (!datos.success) throw new Error("Falló subida a Google Drive: " + (datos.error || "sin detalle"));
+
+            return datos; // { success, url, fileId }
+
+        }
+
+
+
+        const SLOTS = [1, 2, 3, 4, 5];
+
+        // Si no llega ninguna señal nueva del notebook en este tiempo, lo consideramos
+
+        // "sin conexión" aunque el último dato guardado diga que estaba escuchando.
+
+        const UMBRAL_INACTIVIDAD_MS = 40000;
+
+
+
+        // Estado independiente por cada pestaña/slot
+
+        const estado = {};
+
+        SLOTS.forEach(s => {
+
+            estado[s] = {
+
+                historialTareas: JSON.parse(localStorage.getItem(`tareasIA_${s}`)) || [],
+
+                cropperInstance: null,
+
+                datosRecorte: null,
+
+                urlOriginalImagen: "",
+
+                urlSinFondo: "",
+
+                extraX: 0,
+
+                extraY: 0,
+
+                dibujando: false,
+
+                unsubServidor: null,
+
+                ultimoServidorDatos: null,
+
+                ultimoServidorMillis: null
+
+            };
+
+        });
+
+
+
+        function el(id, slot) { return document.getElementById(`${id}-${slot}`); }
+
+
+
+        // Tamaños de impresión disponibles, en cm (ancho x alto), usados para
+
+        // bloquear la proporción del recorte manual y mostrar los "numeritos" en vivo.
+
+        const DIMENSIONES_CM = {
+
+            "16x22": [16, 22],
+
+            "20x27": [20, 27],
+
+            "30x42": [30, 42],
+
+            "40x50": [40, 50],
+
+            "50x60": [50, 60],
+
+        };
+
+
+
+        // ==========================================
+
+        // 1. CONSTRUIR LAS 5 PESTAÑAS Y SUS PANELES
+
+        // ==========================================
+
+        const barraPestañas = document.getElementById("barraPestañas");
+
+        const panelesContenedor = document.getElementById("panelesContenedor");
+
+        const plantilla = document.getElementById("plantillaPanel").innerHTML;
+
+
+
+        SLOTS.forEach(slot => {
+
+            // Botón de pestaña
+
+            const btnTab = document.createElement("button");
+
+            btnTab.id = `tab-${slot}`;
+
+            btnTab.className = "flex-1 min-w-[90px] py-2 rounded-lg text-sm font-bold transition-colors " +
+
+                (slot === 1 ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600");
+
+            btnTab.textContent = `Pestaña ${slot}`;
+
+            btnTab.addEventListener("click", () => cambiarPestaña(slot));
+
+            barraPestañas.appendChild(btnTab);
+
+
+
+            // Panel clonado desde la plantilla
+
+            const panel = document.createElement("div");
+
+            panel.id = `panel-${slot}`;
+
+            panel.className = slot === 1 ? "" : "hidden";
+
+            panel.innerHTML = plantilla.replaceAll("__SLOT__", slot);
+
+            panelesContenedor.appendChild(panel);
+
+        });
+
+
+
+        window.cambiarPestaña = function(slot) {
+
+            SLOTS.forEach(s => {
+
+                document.getElementById(`panel-${s}`).classList.toggle("hidden", s !== slot);
+
+                const tab = document.getElementById(`tab-${s}`);
+
+                tab.className = "flex-1 min-w-[90px] py-2 rounded-lg text-sm font-bold transition-colors " +
+
+                    (s === slot ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600");
+
+            });
+
+        };
+
+
+
+        // ==========================================
+
+        // 2. PERSISTENCIA Y RENDER DE HISTORIAL (por slot)
+
+        // ==========================================
+
+        function guardarEnLocalStorage(slot) {
+
+            localStorage.setItem(`tareasIA_${slot}`, JSON.stringify(estado[slot].historialTareas));
+
+            renderizarHistorial(slot);
+
+        }
+
+
+
+        window.eliminarTarea = async function(slot, id, driveId, driveIdMalla) {
+
+            if (confirm("¿Estás seguro de que quieres ocultar este trabajo y eliminar permanentemente las imágenes de tu Google Drive?")) {
+
+                const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+
+                if (urlWebHook) {
+
+                    if (driveId && driveId !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveId }) });
+
+                    if (driveIdMalla && driveIdMalla !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveIdMalla }) });
+
+                }
+
+                estado[slot].historialTareas = estado[slot].historialTareas.filter(t => t.id !== id);
+
+                guardarEnLocalStorage(slot);
+
+            }
+
+        };
+
+
+
+        window.cargarImagenEnLienzo = async function(slot, url) {
+
+            const txtEstado = el("estado", slot);
+
+            txtEstado.innerText = "Transfiriendo imagen al panel...";
+
+            txtEstado.classList.remove("hidden");
+
+            try {
+
+                const proxyUrl = "https://wsrv.nl/?url=" + encodeURIComponent(url) + "&output=jpg";
+
+                const response = await fetch(proxyUrl);
+
+                if (!response.ok) throw new Error("Fallo en la transferencia");
+
+                const blob = await response.blob();
+
+                const file = new File([blob], "imagen_editada.jpg", { type: "image/jpeg" });
+
+                const dataTransfer = new DataTransfer();
+
+                dataTransfer.items.add(file);
+
+                el("archivo", slot).files = dataTransfer.files;
+
+                el("archivo", slot).dispatchEvent(new Event('change'));
+
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            } catch (error) {
+
+                alert("Drive bloqueó la red. Por favor, mantén presionada la imagen, guárdala y súbela desde tu galería.");
+
+            } finally {
+
+                txtEstado.classList.add("hidden");
+
+            }
+
+        };
+
+
+
+        // ==========================================
+
+        // 3. ENCENDIDO/APAGADO DE SERVIDOR + PROGRESO REAL
+
+        //    El progreso se lee en vivo desde Firestore:
+
+        //    servidores/slot_{n}, documento que el propio
+
+        //    notebook de Kaggle actualiza en cada paso de sus logs
+
+        //    (incluye un "latido" cada 10s aunque no haya tareas).
+
+        // ==========================================
+
+
+
+        // Pinta la barra/estado de un slot a partir de los últimos datos conocidos.
+
+        // Se llama tanto cuando llega un snapshot nuevo como periódicamente,
+
+        // para poder detectar "se dejó de recibir señal" sin esperar un cambio en Firestore.
+
+        function pintarEstadoServidor(slot, datos) {
+
+            const contenedorCarga = el("contenedorCarga", slot);
+
+            const barraCarga = el("barraCarga", slot);
+
+            const porcentajeCarga = el("porcentajeCarga", slot);
+
+            const textoCarga = el("textoCarga", slot);
+
+            const btnArrancar = el("btnPrender", slot);
+
+
+
+            contenedorCarga.classList.remove("hidden");
+
+
+
+            const progreso = Math.max(0, Math.min(100, Number(datos.progreso) || 0));
+
+            barraCarga.style.width = `${progreso}%`;
+
+            porcentajeCarga.innerText = `${progreso}%`;
+
+
+
+            const ultimaMarca = estado[slot].ultimoServidorMillis || Date.now();
+
+            const haceMs = Date.now() - ultimaMarca;
+
+            const seguiaActivo = ['escuchando', 'procesando', 'iniciando'].includes(datos.estado);
+
+            const sinSeñal = seguiaActivo && haceMs > UMBRAL_INACTIVIDAD_MS;
+
+
+
+            let mensaje = datos.mensaje || '';
+
+            if (sinSeñal) {
+
+                mensaje = `⚫ Sin señal hace ${Math.round(haceMs / 1000)}s (puede que el notebook se haya detenido) · último mensaje: ${mensaje}`;
+
+            }
+
+            textoCarga.innerText = mensaje;
+
+
+
+            textoCarga.classList.remove("animate-pulse", "text-blue-400", "text-green-400", "text-red-400", "text-gray-400");
+
+            if (sinSeñal) {
+
+                textoCarga.classList.add("text-gray-400");
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            } else if (datos.estado === 'escuchando') {
+
+                textoCarga.classList.add("text-green-400");
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            } else if (datos.estado === 'error') {
+
+                textoCarga.classList.add("text-red-400");
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            } else if (datos.estado === 'apagado') {
+
+                textoCarga.classList.add("text-gray-400");
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            } else {
+
+                // iniciando / procesando: pulso azul con el progreso real
+
+                textoCarga.classList.add("animate-pulse", "text-blue-400");
+
+                btnArrancar.disabled = true;
+
+                btnArrancar.classList.add('opacity-50', 'cursor-not-allowed');
+
+            }
+
+        }
+
+
+
+        // Confirmación en DOS pasos para encender un servidor duplicado.
+
+        // A propósito NO usa confirm() nativo: en celular, el botón "Aceptar"
+
+        // del confirm nativo a veces queda debajo del dedo justo después de
+
+        // tocar "Iniciar Servidor", y un toque accidental lo confirma solo.
+
+        // Acá el botón cambia de texto/color y hay que tocarlo DE NUEVO
+
+        // dentro de 6 segundos, si no se cancela solo.
+
+        function confirmarEncenderDuplicado(slot, segundos, estadoActual) {
+
+            return new Promise((resolve) => {
+
+                const btnOriginal = el("btnPrender", slot);
+
+                const textoOriginal = btnOriginal.innerText;
+
+                const claseOriginal = btnOriginal.className;
+
+
+
+                // Clonamos el botón: esto QUITA el listener original de
+
+                // "click" (el que llama a prenderServidor normal), así el
+
+                // próximo toque SOLO puede disparar la confirmación, nunca
+
+                // los dos a la vez.
+
+                const btnConfirmacion = btnOriginal.cloneNode(true);
+
+                btnConfirmacion.innerText = `⚠️ Ya hay uno activo (hace ${segundos}s). Tocá de nuevo para confirmar`;
+
+                btnConfirmacion.className = claseOriginal.replace('bg-green-900', 'bg-orange-600').replace('hover:bg-green-800', 'hover:bg-orange-500');
+
+                btnOriginal.parentNode.replaceChild(btnConfirmacion, btnOriginal);
+
+
+
+                let resuelto = false;
+
+                const restaurarBotonNormal = () => {
+
+                    const btnNuevoNormal = btnConfirmacion.cloneNode(true);
+
+                    btnNuevoNormal.innerText = textoOriginal;
+
+                    btnNuevoNormal.className = claseOriginal;
+
+                    btnConfirmacion.parentNode.replaceChild(btnNuevoNormal, btnConfirmacion);
+
+                    btnNuevoNormal.addEventListener("click", () => prenderServidor(slot));
+
+                };
+
+
+
+                btnConfirmacion.addEventListener("click", () => {
+
+                    if (resuelto) return;
+
+                    resuelto = true;
+
+                    clearTimeout(temporizador);
+
+                    restaurarBotonNormal();
+
+                    resolve(true);
+
+                }, { once: true });
+
+
+
+                const temporizador = setTimeout(() => {
+
+                    if (resuelto) return;
+
+                    resuelto = true;
+
+                    restaurarBotonNormal();
+
+                    resolve(false);
+
+                }, 6000);
+
+            });
+
+        }
+
+
+
+        window.prenderServidor = async function(slot, forzar = false) {
+
+            const refServidor = ref(db, `servidores/slot_${slot}`);
+
+
+
+            // Guardia anti-duplicados: si ya hay una señal reciente y viva,
+
+            // confirmamos antes de lanzar OTRO notebook en Kaggle.
+
+            if (!forzar) {
+
+                try {
+
+                    const snap = await get(refServidor);
+
+                    if (snap.exists()) {
+
+                        const datos = snap.val();
+
+                        const haceMs = datos.actualizado ? (Date.now() - datos.actualizado) : Infinity;
+
+                        const activo = haceMs < UMBRAL_INACTIVIDAD_MS && ['escuchando', 'procesando', 'iniciando'].includes(datos.estado);
+
+                        if (activo) {
+
+                            const segundos = Math.round(haceMs / 1000);
+
+                            const confirmado = await confirmarEncenderDuplicado(slot, segundos, datos.estado);
+
+                            if (!confirmado) return;
+
+                        }
+
+                    }
+
+                } catch (err) {
+
+                    // si falla la lectura previa, no bloqueamos el encendido
+
+                }
+
+            }
+
+
+
+            const btnArrancar = el("btnPrender", slot);
+
+            btnArrancar.disabled = true;
+
+            btnArrancar.classList.add('opacity-50', 'cursor-not-allowed');
+
+
+
+            const contenedorCarga = el("contenedorCarga", slot);
+
+            const barraCarga = el("barraCarga", slot);
+
+            const porcentajeCarga = el("porcentajeCarga", slot);
+
+            const textoCarga = el("textoCarga", slot);
+
+
+
+            contenedorCarga.classList.remove("hidden");
+
+            barraCarga.style.width = "2%";
+
+            porcentajeCarga.innerText = "2%";
+
+            textoCarga.innerText = "🚀 Enviando orden a Kaggle...";
+
+            textoCarga.className = "text-xs text-blue-400 font-bold animate-pulse";
+
+
+
+            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+
+            if (!urlWebHook) {
+
+                alert(`Configura la URL de Apps Script de la Pestaña ${slot} primero en '⚙️ Configurar URL'.`);
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+                return;
+
+            }
+
+
+
+            try {
+
+                // Reseteamos el documento ANTES de avisarle a Kaggle: así nunca
+
+                // se ve el estado "listo" de una sesión vieja mientras el
+
+                // notebook nuevo todavía está instalando cosas.
+
+                estado[slot].ultimoServidorMillis = Date.now();
+
+                await set(refServidor, {
+
+                    estado: 'iniciando',
+
+                    progreso: 2,
+
+                    mensaje: '🚀 Orden enviada. Esperando que Kaggle arranque el notebook (puede tardar 1-3 min en llegar la primera señal real)...',
+
+                    tarea_actual: null,
+
+                    sesion: null,
+
+                    actualizado: serverTimestamp()
+
+                });
+
+
+
+                fetch(urlWebHook + "?tipo=cpu&slot=" + slot, { mode: 'no-cors' });
+
+                // La escucha del progreso ya está activa desde que se abrió la pestaña
+
+                // (ver inicializarPanel), así que no hace falta re-suscribirse aquí.
+
+            } catch (error) {
+
+                textoCarga.innerText = "❌ Error de conexión";
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            }
+
+        };
+
+
+
+        window.apagarServidor = async function(slot) {
+
+            if (!confirm(`¿Seguro que quieres apagar el servidor de la Pestaña ${slot}?`)) return;
+
+            try {
+
+                await set(push(ref(db, "tareas_ia")), { estado: "pendiente", comando: "apagar_servidor", slot: String(slot), fecha: new Date().toISOString() });
+
+                alert(`Orden de apagado encolada para la Pestaña ${slot}. El servidor se detendrá pronto.`);
+
+            } catch (error) {
+
+                alert("Error enviando orden de apagado.");
+
+            }
+
+        };
+
+
+
+        // ==========================================
+
+        // 4. HISTORIAL (independiente por slot)
+
+        // ==========================================
+
+        function renderizarHistorial(slot) {
+
+            const contenedor = el("contenedorHistorial", slot);
+
+            contenedor.innerHTML = "";
+
+            estado[slot].historialTareas.forEach(tarea => {
+
+                let colorEstado = tarea.estado === 'completado' ? 'text-green-400' : (tarea.estado === 'error' ? 'text-red-500' : 'text-yellow-400');
+
+                let htmlImg = "";
+
+                let botonesAccion = "";
+
+
+
+                if (tarea.estado === 'completado') {
+
+                    if (tarea.urlResultado) {
+
+                        let imgId = tarea.urlResultado.split('id=')[1];
+
+                        let urlVisualizacion = `https://drive.google.com/thumbnail?id=${imgId}&sz=w1000`;
+
+
+
+                        if (tarea.urlResultadoMalla) {
+
+                            let imgIdMalla = tarea.urlResultadoMalla.split('id=')[1];
+
+                            let urlVisualizacionMalla = `https://drive.google.com/thumbnail?id=${imgIdMalla}&sz=w1000`;
+
+                            htmlImg = `
+
+                            <div class="grid grid-cols-2 gap-2 mt-2">
+
+                                <a href="${tarea.urlResultado}" target="_blank">
+
+                                    <div class="text-[10px] text-center text-gray-400 mb-1">Corte Original</div>
+
+                                    <img src="${urlVisualizacion}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
+
+                                </a>
+
+                                <a href="${tarea.urlResultadoMalla}" target="_blank">
+
+                                    <div class="text-[10px] text-center text-gray-400 mb-1">Con Malla</div>
+
+                                    <img src="${urlVisualizacionMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
+
+                                </a>
+
+                            </div>`;
+
+                        } else {
+
+                            htmlImg = `<a href="${tarea.urlResultado}" target="_blank"><img src="${urlVisualizacion}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
+
+                        }
+
+                        botonesAccion = `
+
+                        <div class="flex gap-2 mt-3">
+
+                            <button onclick="cargarImagenEnLienzo(${slot}, '${urlVisualizacion}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
+
+                            <button onclick="eliminarTarea(${slot}, '${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
+
+                        </div>`;
+
+                    }
+
+                } else {
+
+                    htmlImg = `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
+
+                    botonesAccion = `
+
+                    <div class="flex gap-2 mt-3">
+
+                        <button onclick="eliminarTarea(${slot}, '${tarea.id}')" class="w-full bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow">🗑️ Eliminar</button>
+
+                    </div>`;
+
+                }
+
+
+
+                contenedor.innerHTML += `
+
+                    <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 shadow relative">
+
+                        <div class="flex justify-between items-start">
+
+                            <div>
+
+                                <p class="text-[10px] text-gray-400">ID: ${tarea.id.slice(0,6)}</p>
+
+                                <p class="text-sm font-bold text-white capitalize">${tarea.comando.replace(/_/g, ' ')}</p>
+
+                            </div>
+
+                            <span class="text-xs font-bold ${colorEstado} uppercase bg-gray-800 px-2 py-1 rounded border border-gray-700">${tarea.estado}</span>
+
+                        </div>
+
+                        ${htmlImg}
+
+                        ${botonesAccion}
+
+                    </div>
+
+                `;
+
+            });
+
+        }
+
+
+
+        function reconectarPendientes(slot) {
+
+            estado[slot].historialTareas.forEach((tarea, index) => {
+
+                if (tarea.estado === 'pendiente' || tarea.estado === 'procesando') {
+
+                    const unsubscribe = onValue(ref(db, `tareas_ia/${tarea.id}`), (documento) => {
+
+                        const datos = documento.val();
+
+                        if (datos && (datos.estado === "completado" || datos.estado === "error")) {
+
+                            estado[slot].historialTareas[index].estado = datos.estado;
+
+                            if (datos.estado === "completado") {
+
+                                estado[slot].historialTareas[index].urlResultado = datos.url_resultado;
+
+                                estado[slot].historialTareas[index].driveId = datos.drive_id;
+
+                                if (datos.url_resultado_malla) {
+
+                                    estado[slot].historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
+
+                                    estado[slot].historialTareas[index].driveIdMalla = datos.drive_id_malla;
+
+                                }
+
+                                // Si la tarea era "cortar sin fondo", guardamos su resultado
+
+                                // (PNG transparente) para poder probar fondos rápido después.
+
+                                if (estado[slot].historialTareas[index].comando === "cortar_sin_fondo" && datos.url_resultado) {
+
+                                    estado[slot].urlSinFondo = datos.url_resultado;
+
+                                    el("probadorFondos", slot).classList.remove("hidden");
+
+                                }
+
+                            }
+
+                            guardarEnLocalStorage(slot);
+
+                            unsubscribe();
+
+                        } else if (datos) {
+
+                            estado[slot].historialTareas[index].estado = datos.estado;
+
+                            guardarEnLocalStorage(slot);
+
+                        }
+
+                    });
+
+                }
+
+            });
+
+        }
+
+
+
+        // ==========================================
+
+        // 5. INICIALIZACIÓN DE CADA PANEL (lienzo, cropper, envío)
+
+        // ==========================================
+
+        function inicializarPanel(slot) {
+
+            renderizarHistorial(slot);
+
+            reconectarPendientes(slot);
+
+
+
+            el("fidelidadIA", slot).addEventListener("input", function() {
+
+                el("valorFidelidad", slot).innerText = this.value;
+
+            });
+
+
+
+            el("btnPrender", slot).addEventListener("click", () => prenderServidor(slot));
+
+            el("btnApagar", slot).addEventListener("click", () => apagarServidor(slot));
+
+
+
+            // -------- Escucha permanente del estado real del servidor --------
+
+            // Se conecta desde que se abre la pestaña (no solo al apretar "Encender"),
+
+            // para que nunca se desincronice si salís y volvés a entrar al panel.
+
+            const refServidor = ref(db, `servidores/slot_${slot}`);
+
+            estado[slot].unsubServidor = onValue(refServidor, (snap) => {
+
+                if (!snap.exists()) return;
+
+                const datos = snap.val();
+
+                estado[slot].ultimoServidorDatos = datos;
+
+                estado[slot].ultimoServidorMillis = datos.actualizado || Date.now();
+
+                pintarEstadoServidor(slot, datos);
+
+            });
+
+
+
+            // Revisa cada 5s si dejó de llegar señal (latido), aunque RTDB
+
+            // no dispare un evento nuevo (el notebook pudo simplemente caerse).
+
+            setInterval(() => {
+
+                if (estado[slot].ultimoServidorDatos) pintarEstadoServidor(slot, estado[slot].ultimoServidorDatos);
+
+            }, 5000);
+
+
+
+            // -------- Lienzo y Cropper (recorte manual) --------
+
+            const inputArchivo = el("archivo", slot);
+
+            const contenedorLienzo = el("contenedorLienzo", slot);
+
+            const controlesPincel = el("controlesPincel", slot);
+
+            const controlesEdicion = el("controlesEdicion", slot);
+
+            const imgFondo = el("imgFondo", slot);
+
+            const canvas = el("lienzoDibujo", slot);
+
+            const ctx = canvas.getContext("2d");
+
+            const grosorPincel = el("grosorPincel", slot);
+
+
+
+            inputArchivo.addEventListener("change", (e) => {
+
+                const file = e.target.files[0];
+
+                if (!file) return;
+
+
+
+                const reader = new FileReader();
+
+                reader.onload = (event) => {
+
+                    estado[slot].urlOriginalImagen = event.target.result;
+
+                    imgFondo.src = estado[slot].urlOriginalImagen;
+
+
+
+                    imgFondo.addEventListener("load", () => {
+
+                        contenedorLienzo.classList.remove("hidden");
+
+                        controlesPincel.classList.remove("hidden");
+
+                        controlesEdicion.classList.remove("hidden");
+
+
+
+                        canvas.width = imgFondo.naturalWidth;
+
+                        canvas.height = imgFondo.naturalHeight;
+
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                        ctx.lineCap = "round";
+
+                        ctx.lineJoin = "round";
+
+                        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+
+
+
+                        estado[slot].datosRecorte = null;
+
+                        canvas.classList.remove("hidden");
+
+                    }, { once: true });
+
+                };
+
+                reader.readAsDataURL(file);
+
+            });
+
+
+
+            const btnActivarRecorte = el("btnActivarRecorte", slot);
+
+            const btnAplicarRecorte = el("btnAplicarRecorte", slot);
+
+            const btnCancelarRecorte = el("btnCancelarRecorte", slot);
+
+
+
+            btnActivarRecorte.addEventListener("click", () => {
+
+                if (estado[slot].cropperInstance) return;
+
+                canvas.classList.add("hidden");
+
+                controlesPincel.classList.add("hidden");
+
+
+
+                const canvasFalso = document.createElement("canvas");
+
+                estado[slot].extraX = imgFondo.naturalWidth * 0.5;
+
+                estado[slot].extraY = imgFondo.naturalHeight * 0.5;
+
+
+
+                canvasFalso.width = imgFondo.naturalWidth + (estado[slot].extraX * 2);
+
+                canvasFalso.height = imgFondo.naturalHeight + (estado[slot].extraY * 2);
+
+
+
+                const ctxFalso = canvasFalso.getContext("2d");
+
+                ctxFalso.drawImage(imgFondo, estado[slot].extraX, estado[slot].extraY);
+
+
+
+                imgFondo.addEventListener("load", () => {
+
+                    const dimensionElegida = el("select-dimension", slot).value;
+
+                    const par = DIMENSIONES_CM[dimensionElegida]; // [ancho_cm, alto_cm] o undefined si "original"
+
+                    const guia = el("guiaRecorte", slot);
+
+
+
+                    const opcionesCropper = {
+
+                        viewMode: 0,
+
+                        autoCropArea: 0.5,
+
+                        background: true,
+
+                        minContainerHeight: 350,
+
+                        responsive: true,
+
+                    };
+
+                    if (par) {
+
+                        opcionesCropper.aspectRatio = par[0] / par[1]; // fuerza SIEMPRE la proporción correcta
+
+                        guia.classList.remove("hidden");
+
+                        guia.innerText = `📐 Recorte bloqueado a proporción ${dimensionElegida.replace('x', ' x ')} cm — movelo/agrandalo hasta centrar a la persona.`;
+
+                    } else {
+
+                        guia.classList.add("hidden");
+
+                    }
+
+
+
+                    estado[slot].cropperInstance = new Cropper(imgFondo, opcionesCropper);
+
+
+
+                    if (par) {
+
+                        // Actualiza los "numeritos" en vivo: tamaño real aproximado (a 300dpi,
+
+                        // el estándar de imprenta) del recorte actual, para juzgar la resolución.
+
+                        imgFondo.addEventListener("crop", (ev) => {
+
+                            const DPI = 300;
+
+                            const anchoCm = (ev.detail.width / DPI * 2.54).toFixed(1);
+
+                            const altoCm = (ev.detail.height / DPI * 2.54).toFixed(1);
+
+                            guia.innerText = `📐 Recorte actual ≈ ${anchoCm} x ${altoCm} cm (a 300dpi) — proporción fija ${dimensionElegida.replace('x', ' x ')} cm.`;
+
+                        });
+
+                    }
+
+
+
+                    btnActivarRecorte.classList.add("hidden");
+
+                    btnAplicarRecorte.classList.remove("hidden");
+
+                    btnCancelarRecorte.classList.remove("hidden");
+
+                }, { once: true });
+
+                imgFondo.src = canvasFalso.toDataURL("image/png");
+
+            });
+
+
+
+            btnCancelarRecorte.addEventListener("click", () => {
+
+                if (estado[slot].cropperInstance) { estado[slot].cropperInstance.destroy(); estado[slot].cropperInstance = null; }
+
+                el("guiaRecorte", slot).classList.add("hidden");
+
+                imgFondo.addEventListener("load", () => {
+
+                    canvas.classList.remove("hidden");
+
+                    controlesPincel.classList.remove("hidden");
+
+                    btnActivarRecorte.classList.remove("hidden");
+
+                    btnAplicarRecorte.classList.add("hidden");
+
+                    btnCancelarRecorte.classList.add("hidden");
+
+                }, { once: true });
+
+                imgFondo.src = estado[slot].urlOriginalImagen;
+
+            });
+
+
+
+            btnAplicarRecorte.addEventListener("click", () => {
+
+                if (!estado[slot].cropperInstance) return;
+
+                const datosFalsos = estado[slot].cropperInstance.getData(true);
+
+                estado[slot].datosRecorte = {
+
+                    x: datosFalsos.x - estado[slot].extraX,
+
+                    y: datosFalsos.y - estado[slot].extraY,
+
+                    width: datosFalsos.width,
+
+                    height: datosFalsos.height
+
+                };
+
+                estado[slot].cropperInstance.destroy();
+
+                estado[slot].cropperInstance = null;
+
+                el("guiaRecorte", slot).classList.add("hidden");
+
+
+
+                imgFondo.addEventListener("load", () => {
+
+                    canvas.classList.remove("hidden");
+
+                    controlesPincel.classList.remove("hidden");
+
+                    btnActivarRecorte.classList.remove("hidden");
+
+                    btnAplicarRecorte.classList.add("hidden");
+
+                    btnCancelarRecorte.classList.add("hidden");
+
+                    alert("✅ Coordenadas expansivas guardadas. ¡El servidor armará el nuevo tamaño!");
+
+                }, { once: true });
+
+                imgFondo.src = estado[slot].urlOriginalImagen;
+
+            });
+
+
+
+            canvas.addEventListener("mousedown", (e) => { estado[slot].dibujando = true; pintar(e); });
+
+            canvas.addEventListener("mouseup", () => { estado[slot].dibujando = false; ctx.beginPath(); });
+
+            canvas.addEventListener("mousemove", pintar);
+
+            canvas.addEventListener("mouseleave", () => { estado[slot].dibujando = false; ctx.beginPath(); });
+
+
+
+            canvas.addEventListener("touchstart", (e) => { estado[slot].dibujando = true; pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
+
+            canvas.addEventListener("touchend", () => { estado[slot].dibujando = false; ctx.beginPath(); });
+
+            canvas.addEventListener("touchmove", (e) => { pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
+
+
+
+            function pintar(e) {
+
+                if (!estado[slot].dibujando) return;
+
+                const rect = canvas.getBoundingClientRect();
+
+                const scaleX = canvas.width / rect.width;
+
+                const scaleY = canvas.height / rect.height;
+
+                const x = (e.clientX - rect.left) * scaleX;
+
+                const y = (e.clientY - rect.top) * scaleY;
+
+                ctx.lineWidth = grosorPincel.value * scaleX;
+
+                ctx.lineTo(x, y);
+
+                ctx.stroke();
+
+                ctx.beginPath();
+
+                ctx.moveTo(x, y);
+
+            }
+
+
+
+            el("btnLimpiar", slot).addEventListener("click", () => {
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            });
+
+
+
+            // -------- Mostrar/ocultar el selector de "rostro original" --------
+
+            const contenedorRostroRef = el("contenedorRostroRef", slot);
+
+            const selectComando = el("comando", slot);
+
+            function actualizarVisibilidadRostroRef() {
+
+                if (selectComando.value === "restaurar_rostro_logo") {
+
+                    contenedorRostroRef.classList.remove("hidden");
+
+                } else {
+
+                    contenedorRostroRef.classList.add("hidden");
+
+                }
+
+            }
+
+            selectComando.addEventListener("change", actualizarVisibilidadRostroRef);
+
+            actualizarVisibilidadRostroRef();
+
+
+
+            function obtenerMascaraBlob() {
+
+                return new Promise(resolve => {
+
+                    const maskCanvas = document.createElement("canvas");
+
+                    maskCanvas.width = canvas.width;
+
+                    maskCanvas.height = canvas.height;
+
+                    const mCtx = maskCanvas.getContext("2d");
+
+
+
+                    mCtx.fillStyle = "black";
+
+                    mCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+
+                    mCtx.drawImage(canvas, 0, 0);
+
+
+
+                    const imgData = mCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+
+                    for (let i = 0; i < imgData.data.length; i += 4) {
+
+                        if (imgData.data[i] > 0) {
+
+                            imgData.data[i] = 255;
+
+                            imgData.data[i+1] = 255;
+
+                            imgData.data[i+2] = 255;
+
+                            imgData.data[i+3] = 255;
+
+                        }
+
+                    }
+
+                    mCtx.putImageData(imgData, 0, 0);
+
+                    maskCanvas.toBlob(resolve, "image/png");
+
+                });
+
+            }
+
+
+
+            function hayAlgoPintado() {
+
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+                for (let i = 3; i < imgData.data.length; i += 4) {
+
+                    if (imgData.data[i] > 0) return true;
+
+                }
+
+                return false;
+
+            }
+
+
+
+            // -------- Envío de tareas (etiquetadas con el slot de esta pestaña) --------
+
+            const btnEnviar = el("btnEnviar", slot);
+
+            const txtEstado = el("estado", slot);
+
+
+
+            btnEnviar.addEventListener("click", async () => {
+
+                const archivo = inputArchivo.files[0];
+
+                const comando = el("comando", slot).value;
+
+                const dimensionElegida = el("select-dimension", slot).value;
+
+                const mallaElegida = el("select-malla", slot).value;
+
+
+
+                if (!archivo) return alert("Sube una imagen primero");
+
+
+
+                if (comando === "restaurar_rostro_logo") {
+
+                    const tieneRostro = !!el("archivoRostro", slot).files[0];
+
+                    const tieneLogoPintado = hayAlgoPintado();
+
+                    // Las dos funciones son independientes y combinables:
+
+                    // - Solo rostro: sube la foto de referencia, no pintes nada.
+
+                    // - Solo logo: no subas foto de referencia, pinta el logo.
+
+                    // - Ambas: sube la foto Y pinta el logo.
+
+                    if (!tieneRostro && !tieneLogoPintado) {
+
+                        return alert("Sube la foto con el rostro ORIGINAL y/o pinta con el pincel el logo a borrar (podes usar una de las dos opciones, o ambas).");
+
+                    }
+
+                }
+
+
+
+                btnEnviar.disabled = true;
+
+                btnEnviar.classList.replace("bg-blue-600", "bg-gray-600");
+
+                txtEstado.classList.remove("hidden");
+
+                txtEstado.innerText = "Subiendo imagen a la nube...";
+
+
+
+                try {
+
+                    const dataOrig = await subirADrive(archivo, slot, archivo.name);
+
+                    let urlOriginal = dataOrig.url;
+
+                    let urlMascara = "";
+
+                    let urlRostroReferencia = "";
+
+
+
+                    if (comando === "armonizar_color") {
+
+                        txtEstado.innerText = "Subiendo máscara térmica...";
+
+                        const blobMascara = await obtenerMascaraBlob();
+
+                        const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
+
+                        urlMascara = dataMascara.url;
+
+                    }
+
+
+
+                    if (comando === "restaurar_rostro_logo") {
+
+                        const archivoRostro = el("archivoRostro", slot).files[0];
+
+                        // La foto de referencia del rostro ahora es OPCIONAL: si no se
+
+                        // sube, simplemente no se cambia el rostro y solo se hace el
+
+                        // borrado del logo (si se pinto algo).
+
+                        if (archivoRostro) {
+
+                            txtEstado.innerText = "Subiendo foto de referencia del rostro...";
+
+                            const dataRostro = await subirADrive(archivoRostro, slot, archivoRostro.name);
+
+                            urlRostroReferencia = dataRostro.url;
+
+                        }
+
+
+
+                        // La máscara del logo es opcional: solo se sube si el usuario pintó algo con el pincel.
+
+                        if (hayAlgoPintado()) {
+
+                            txtEstado.innerText = "Subiendo máscara del logo a borrar...";
+
+                            const blobMascara = await obtenerMascaraBlob();
+
+                            const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
+
+                            urlMascara = dataMascara.url;
+
+                        }
+
+                    }
+
+
+
+                    if (comando === "recorte_manual" && !estado[slot].datosRecorte) {
+
+                        throw new Error("Debes usar la herramienta '✂️ Recorte Manual' y darle a '✅ Aplicar Recorte' antes de enviar.");
+
+                    }
+
+
+
+                    const nuevaTareaRef = push(ref(db, "tareas_ia"));
+
+                    await set(nuevaTareaRef, {
+
+                        estado: "pendiente",
+
+                        comando: comando,
+
+                        slot: String(slot),
+
+                        fidelidad: parseFloat(el("fidelidadIA", slot).value),
+
+                        fondo_id: el("fondoIA", slot).value,
+
+                        dimension: dimensionElegida,
+
+                        malla_id: mallaElegida,
+
+                        url_imagen: urlOriginal,
+
+                        url_mascara: urlMascara,
+
+                        url_imagen_rostro: urlRostroReferencia,
+
+                        crop_x: estado[slot].datosRecorte ? estado[slot].datosRecorte.x : 0,
+
+                        crop_y: estado[slot].datosRecorte ? estado[slot].datosRecorte.y : 0,
+
+                        crop_w: estado[slot].datosRecorte ? estado[slot].datosRecorte.width : 0,
+
+                        crop_h: estado[slot].datosRecorte ? estado[slot].datosRecorte.height : 0,
+
+                        fecha: new Date().toISOString()
+
+                    });
+
+
+
+                    let nuevaTarea = {
+
+                        id: nuevaTareaRef.key,
+
+                        comando: comando,
+
+                        estado: 'pendiente',
+
+                        urlOriginal: urlOriginal,
+
+                        urlResultado: null
+
+                    };
+
+                    estado[slot].historialTareas.unshift(nuevaTarea);
+
+                    guardarEnLocalStorage(slot);
+
+                    reconectarPendientes(slot);
+
+
+
+                    txtEstado.innerText = `¡Enviado al servidor de la Pestaña ${slot}! Mira el historial.`;
+
+                    setTimeout(() => txtEstado.classList.add("hidden"), 3000);
+
+
+
+                } catch (error) {
+
+                    alert(error.message);
+
+                } finally {
+
+                    btnEnviar.disabled = false;
+
+                    btnEnviar.classList.replace("bg-gray-600", "bg-blue-600");
+
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                }
+
+            });
+
+
+
+            el("btnConfigurarURLs", slot).addEventListener("click", () => {
+
+                const actualCPU = localStorage.getItem(`url_apps_script_cpu_${slot}`) || "";
+
+                const nuevaCPU = prompt(`Pega la URL de Apps Script (puede ser LA MISMA para las 5 pestañas, el sistema envía el número de slot automáticamente):`, actualCPU);
+
+                if (nuevaCPU !== null) localStorage.setItem(`url_apps_script_cpu_${slot}`, nuevaCPU.trim());
+
+                alert(`✅ URL guardada de forma segura en este navegador para la Pestaña ${slot}.`);
+
+            });
+
+
+
+            // -------- Probador rápido de fondos --------
+
+            // Reutiliza el PNG "sin fondo" ya cortado: el servidor NO vuelve a
+
+            // correr la IA de recorte, solo pega el fondo elegido, así que cada
+
+            // prueba tarda segundos en vez de minutos.
+
+            el("btnProbarFondo", slot).addEventListener("click", async () => {
+
+                if (!estado[slot].urlSinFondo) {
+
+                    return alert('Primero corré la acción "🖼️ Cortar Sin Fondo (para probar fondos)".');
+
+                }
+
+                const btn = el("btnProbarFondo", slot);
+
+                const fondoElegido = el("fondoPrueba", slot).value;
+
+                btn.disabled = true;
+
+                btn.innerText = "⏳ Probando...";
+
+                try {
+
+                    const nuevaTareaRef = push(ref(db, "tareas_ia"));
+
+                    await set(nuevaTareaRef, {
+
+                        estado: "pendiente",
+
+                        comando: "probar_fondo",
+
+                        slot: String(slot),
+
+                        fondo_id: fondoElegido,
+
+                        dimension: el("select-dimension", slot).value,
+
+                        malla_id: el("select-malla", slot).value,
+
+                        url_imagen: estado[slot].urlSinFondo,
+
+                        fecha: new Date().toISOString()
+
+                    });
+
+                    estado[slot].historialTareas.unshift({
+
+                        id: nuevaTareaRef.key,
+
+                        comando: `probar_fondo (Nº ${fondoElegido})`,
+
+                        estado: 'pendiente',
+
+                        urlOriginal: estado[slot].urlSinFondo,
+
+                        urlResultado: null
+
+                    });
+
+                    guardarEnLocalStorage(slot);
+
+                    reconectarPendientes(slot);
+
+                } catch (error) {
+
+                    alert("Error al probar el fondo: " + error.message);
+
+                } finally {
+
+                    btn.disabled = false;
+
+                    btn.innerText = "👁️ Probar este fondo";
+
+                }
+
+            });
+
+        }
+
+
+
+        SLOTS.forEach(slot => inicializarPanel(slot));
+
+
+
+    </script>
+
+</body>
+
 </html>

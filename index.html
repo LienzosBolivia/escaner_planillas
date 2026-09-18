@@ -456,6 +456,18 @@
 
             if (!datos.success) throw new Error("Falló subida a Google Drive: " + (datos.error || "sin detalle"));
 
+            if (!datos.url || !datos.fileId) {
+                // Esto NO debería pasar si Apps Script funcionó bien: success:true
+                // siempre debería venir con url y fileId. Si llegamos acá, casi
+                // seguro el "assemble" no encontró los chunks temporales (revisa
+                // los logs de Ejecuciones en el editor de Apps Script para ver
+                // qué pasó exactamente con este idUnico: "${idUnico}").
+                throw new Error(
+                    `Apps Script dijo "éxito" pero no devolvió URL/ID de archivo para "${nombreFinal}" ` +
+                    `(idUnico: ${idUnico}). Revisa "Ejecuciones" en el editor de Apps Script para ver el detalle.`
+                );
+            }
+
             return datos; // { success, url, fileId }
 
         }
@@ -1220,6 +1232,8 @@
 
                                     estado[slot].urlSinFondo = datos.url_resultado;
 
+                                    estado[slot].idSinFondo = datos.drive_id;
+
                                     el("probadorFondos", slot).classList.remove("hidden");
 
                                 }
@@ -1794,6 +1808,10 @@
 
                     let urlRostroReferencia = "";
 
+                    let idMascara = "";
+
+                    let idImagenRostro = "";
+
 
 
                     if (comando === "armonizar_color") {
@@ -1805,6 +1823,8 @@
                         const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
 
                         urlMascara = dataMascara.url;
+
+                        idMascara = dataMascara.fileId;
 
                     }
 
@@ -1828,6 +1848,8 @@
 
                             urlRostroReferencia = dataRostro.url;
 
+                            idImagenRostro = dataRostro.fileId;
+
                         }
 
 
@@ -1844,6 +1866,8 @@
 
                             urlMascara = dataMascara.url;
 
+                            idMascara = dataMascara.fileId;
+
                         }
 
                     }
@@ -1856,7 +1880,9 @@
 
                     }
 
-
+                    if (!urlOriginal) {
+                        throw new Error("No se obtuvo la URL de la imagen subida. No se puede crear la tarea.");
+                    }
 
                     const nuevaTareaRef = push(ref(db, "tareas_ia"));
 
@@ -1878,9 +1904,15 @@
 
                         url_imagen: urlOriginal,
 
+                        id_imagen: dataOrig.fileId || "",
+
                         url_mascara: urlMascara,
 
+                        id_mascara: idMascara || "",
+
                         url_imagen_rostro: urlRostroReferencia,
+
+                        id_imagen_rostro: idImagenRostro || "",
 
                         crop_x: estado[slot].datosRecorte ? estado[slot].datosRecorte.x : 0,
 
@@ -1982,6 +2014,10 @@
 
                 try {
 
+                    if (!estado[slot].urlSinFondo) {
+                        throw new Error("No hay una imagen sin fondo cargada todavía para probar un fondo nuevo.");
+                    }
+
                     const nuevaTareaRef = push(ref(db, "tareas_ia"));
 
                     await set(nuevaTareaRef, {
@@ -1999,6 +2035,8 @@
                         malla_id: el("select-malla", slot).value,
 
                         url_imagen: estado[slot].urlSinFondo,
+
+                        id_imagen: estado[slot].idSinFondo || "",
 
                         fecha: new Date().toISOString()
 

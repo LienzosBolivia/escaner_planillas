@@ -387,7 +387,11 @@
         async function llamarAppsScript(urlWebHook, cuerpo) {
             const respuesta = await fetch(urlWebHook, {
                 method: "POST",
-                body: JSON.stringify(cuerpo)
+                headers: {
+                    "Content-Type": "text/plain;charset=utf-8" // evita el preflight OPTIONS que Apps Script rechaza
+                },
+                body: JSON.stringify(cuerpo),
+                redirect: "follow"
             });
 
             const textoCrudo = await respuesta.text();
@@ -426,6 +430,7 @@
             const totalChunks = Math.ceil(base64Completo.length / TAMANO_CHUNK) || 1;
 
             const txtEstado = document.getElementById(`estado-${slotActual}`);
+            const chunkIds = []; // guardamos el fileId real que Drive asigna a cada trozo
 
             for (let i = 0; i < totalChunks; i++) {
                 if (txtEstado) txtEstado.innerText = `Subiendo ${nombreFinal}: parte ${i + 1} de ${totalChunks}...`;
@@ -442,6 +447,8 @@
                 if (!datosChunk.success) {
                     throw new Error("Falló la subida del pedazo " + (i + 1) + " de " + totalChunks + ": " + (datosChunk.error || "sin detalle"));
                 }
+
+                chunkIds.push(datosChunk.fileId);
             }
 
             if (txtEstado) txtEstado.innerText = `Ensamblando ${nombreFinal} en el servidor...`;
@@ -450,8 +457,7 @@
                 action: "assemble",
                 filename: nombreFinal,
                 mimetype: mimeFinal,
-                totalChunks: totalChunks,
-                idUnico: idUnico
+                chunkIds: chunkIds // en vez de totalChunks + idUnico, mandamos los IDs exactos
             });
 
             if (!datos.success) throw new Error("Falló subida a Google Drive: " + (datos.error || "sin detalle"));

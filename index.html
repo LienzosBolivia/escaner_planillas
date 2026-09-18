@@ -368,75 +368,91 @@
 
         // subir los resultados finales sin fallos.
 
+        // Tamaño de cada pedazo (en caracteres Base64, ~1MB). Apps Script se
+        // ahoga si le mandamos el archivo completo de un solo golpe, así que
+        // lo cortamos en pedacitos, los subimos uno por uno como .txt
+        // temporales en Drive, y al final le pedimos a Apps Script que los
+        // pegue y arme la imagen final.
+        const TAMANO_CHUNK = 1000000;
+
+        function leerComoBase64(archivoOBlob) {
+            return new Promise((resolve, reject) => {
+                const lector = new FileReader();
+                lector.onload = () => resolve(lector.result.split(",")[1]);
+                lector.onerror = () => reject(new Error("No se pudo leer el archivo para subirlo."));
+                lector.readAsDataURL(archivoOBlob);
+            });
+        }
+
+        async function llamarAppsScript(urlWebHook, cuerpo) {
+            const respuesta = await fetch(urlWebHook, {
+                method: "POST",
+                body: JSON.stringify(cuerpo)
+            });
+
+            const textoCrudo = await respuesta.text();
+            let datos;
+            try {
+                datos = JSON.parse(textoCrudo);
+            } catch (e) {
+                // Google devolvió HTML en vez de JSON: casi siempre es que el
+                // despliegue de Apps Script no tiene una "Nueva versión" publicada
+                // con el código actual, o el acceso no está en "Cualquier usuario".
+                console.error("Respuesta cruda de Apps Script (no es JSON):", textoCrudo.slice(0, 500));
+                throw new Error(
+                    "Google Apps Script devolvió una página en vez de JSON (probablemente falta " +
+                    "publicar una 'Nueva versión' del despliegue, o el acceso no es 'Cualquier usuario'). " +
+                    "Detalle: " + textoCrudo.slice(0, 150)
+                );
+            }
+            return datos;
+        }
+
         async function subirADrive(archivoOBlob, slotActual, nombreArchivo) {
 
             const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slotActual}`);
 
             if (!urlWebHook) throw new Error("No hay URL de Apps Script guardada para este slot.");
 
+            const nombreFinal = nombreArchivo || (archivoOBlob.name || "imagen.jpg");
+            const mimeFinal = archivoOBlob.type || "image/jpeg";
 
+            const base64Completo = await leerComoBase64(archivoOBlob);
 
-            const base64Completo = await new Promise((resolve, reject) => {
+            // ID único por subida, para que los .txt temporales de este
+            // archivo no se mezclen con los de otra subida simultánea.
+            const idUnico = "chunk_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
 
-                const lector = new FileReader();
+            const totalChunks = Math.ceil(base64Completo.length / TAMANO_CHUNK) || 1;
 
-                lector.onload = () => resolve(lector.result.split(",")[1]);
+            const txtEstado = document.getElementById(`estado-${slotActual}`);
 
-                lector.onerror = () => reject(new Error("No se pudo leer el archivo para subirlo."));
+            for (let i = 0; i < totalChunks; i++) {
+                if (txtEstado) txtEstado.innerText = `Subiendo ${nombreFinal}: parte ${i + 1} de ${totalChunks}...`;
 
-                lector.readAsDataURL(archivoOBlob);
+                const trozo = base64Completo.substring(i * TAMANO_CHUNK, (i + 1) * TAMANO_CHUNK);
 
-            });
+                const datosChunk = await llamarAppsScript(urlWebHook, {
+                    action: "upload_chunk",
+                    filename: idUnico,
+                    partIndex: i,
+                    chunkData: trozo
+                });
 
-
-
-            const respuesta = await fetch(urlWebHook, {
-
-                method: "POST",
-
-                body: JSON.stringify({
-
-                    action: "upload",
-
-                    filename: nombreArchivo || (archivoOBlob.name || "imagen.jpg"),
-
-                    mimetype: archivoOBlob.type || "image/jpeg",
-
-                    base64: base64Completo
-
-                })
-
-            });
-
-            const textoCrudo = await respuesta.text();
-
-            let datos;
-
-            try {
-
-                datos = JSON.parse(textoCrudo);
-
-            } catch (e) {
-
-                // Google devolvió HTML en vez de JSON: casi siempre es que el
-
-                // despliegue de Apps Script no tiene una "Nueva versión" publicada
-
-                // con el código actual, o el acceso no está en "Cualquier usuario".
-
-                console.error("Respuesta cruda de Apps Script (no es JSON):", textoCrudo.slice(0, 500));
-
-                throw new Error(
-
-                    "Google Apps Script devolvió una página en vez de JSON (probablemente falta " +
-
-                    "publicar una 'Nueva versión' del despliegue, o el acceso no es 'Cualquier usuario'). " +
-
-                    "Detalle: " + textoCrudo.slice(0, 150)
-
-                );
-
+                if (!datosChunk.success) {
+                    throw new Error("Falló la subida del pedazo " + (i + 1) + " de " + totalChunks + ": " + (datosChunk.error || "sin detalle"));
+                }
             }
+
+            if (txtEstado) txtEstado.innerText = `Ensamblando ${nombreFinal} en el servidor...`;
+
+            const datos = await llamarAppsScript(urlWebHook, {
+                action: "assemble",
+                filename: nombreFinal,
+                mimetype: mimeFinal,
+                totalChunks: totalChunks,
+                idUnico: idUnico
+            });
 
             if (!datos.success) throw new Error("Falló subida a Google Drive: " + (datos.error || "sin detalle"));
 

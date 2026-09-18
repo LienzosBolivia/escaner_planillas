@@ -454,9 +454,95 @@
                 idUnico: idUnico
             });
 
-            if (!datos.success) throw new Error("Falló subida a Google Drive: " + (datos.error || "sin detalle"));
+            if (!datos.success) throw new Error("Falló la subida: " + (datos.error || "sin detalle"));
 
-            return datos; // { success, url, fileId }
+            return datos; // { success, fileId, totalChunks, mimetype }  (ya NO hay "url" de Drive)
+
+        }
+
+
+
+        // 📥 Descarga una imagen guardada en el servidor (Apps Script) pidiendo
+
+        // sus pedazos uno por uno con "download_chunk", y arma un Blob local.
+
+        // Es el reemplazo directo de los enlaces "drive.google.com/..." de antes:
+
+        // ya no hay ninguna URL pública, solo un fileId que vive en la caché
+
+        // del script por hasta 6 horas.
+
+        async function descargarComoBlob(urlWebHook, fileId, onProgreso) {
+
+            if (!urlWebHook) throw new Error("No hay URL de Apps Script guardada para este slot.");
+
+            if (!fileId || fileId === "undefined") throw new Error("No hay imagen para descargar (fileId vacío).");
+
+            let base64Completo = "";
+
+            let mimetype = "image/jpeg";
+
+            let indice = 0;
+
+            let total = 1;
+
+            while (indice < total) {
+
+                const datos = await llamarAppsScript(urlWebHook, {
+
+                    action: "download_chunk",
+
+                    fileId: fileId,
+
+                    partIndex: indice
+
+                });
+
+                if (!datos.success) throw new Error("Falló la descarga del pedazo " + indice + ": " + (datos.error || "sin detalle"));
+
+                base64Completo += datos.chunkData;
+
+                mimetype = datos.mimetype || mimetype;
+
+                total = datos.totalChunks;
+
+                indice++;
+
+                if (onProgreso) onProgreso(indice, total);
+
+            }
+
+            const binario = atob(base64Completo);
+
+            const bytes = new Uint8Array(binario.length);
+
+            for (let i = 0; i < binario.length; i++) bytes[i] = binario.charCodeAt(i);
+
+            return new Blob([bytes], { type: mimetype });
+
+        }
+
+
+
+        // Igual que descargarComoBlob pero devuelve un data: URL, listo para
+
+        // usar directo en un <img src="...">.
+
+        async function descargarComoDataURL(urlWebHook, fileId, onProgreso) {
+
+            const blob = await descargarComoBlob(urlWebHook, fileId, onProgreso);
+
+            return new Promise((resolve, reject) => {
+
+                const lector = new FileReader();
+
+                lector.onload = () => resolve(lector.result);
+
+                lector.onerror = () => reject(new Error("No se pudo convertir la imagen descargada."));
+
+                lector.readAsDataURL(blob);
+
+            });
 
         }
 
@@ -616,17 +702,17 @@
 
 
 
-        window.eliminarTarea = async function(slot, id, driveId, driveIdMalla) {
+        window.eliminarTarea = async function(slot, id, fileId, fileIdMalla) {
 
-            if (confirm("¿Estás seguro de que quieres ocultar este trabajo y eliminar permanentemente las imágenes de tu Google Drive?")) {
+            if (confirm("¿Estás seguro de que quieres ocultar este trabajo? (las imágenes en el servidor caducan solas a las 6 horas de todos modos)")) {
 
                 const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
 
                 if (urlWebHook) {
 
-                    if (driveId && driveId !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveId }) });
+                    if (fileId && fileId !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: fileId }) });
 
-                    if (driveIdMalla && driveIdMalla !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveIdMalla }) });
+                    if (fileIdMalla && fileIdMalla !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: fileIdMalla }) });
 
                 }
 
@@ -640,7 +726,7 @@
 
 
 
-        window.cargarImagenEnLienzo = async function(slot, url) {
+        window.cargarImagenEnLienzo = async function(slot, fileId) {
 
             const txtEstado = el("estado", slot);
 
@@ -650,15 +736,15 @@
 
             try {
 
-                const proxyUrl = "https://wsrv.nl/?url=" + encodeURIComponent(url) + "&output=jpg";
+                const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
 
-                const response = await fetch(proxyUrl);
+                const blob = await descargarComoBlob(urlWebHook, fileId, (i, total) => {
 
-                if (!response.ok) throw new Error("Fallo en la transferencia");
+                    txtEstado.innerText = `Transfiriendo imagen al panel: pedazo ${i} de ${total}...`;
 
-                const blob = await response.blob();
+                });
 
-                const file = new File([blob], "imagen_editada.jpg", { type: "image/jpeg" });
+                const file = new File([blob], "imagen_editada.jpg", { type: blob.type || "image/jpeg" });
 
                 const dataTransfer = new DataTransfer();
 
@@ -672,7 +758,7 @@
 
             } catch (error) {
 
-                alert("Drive bloqueó la red. Por favor, mantén presionada la imagen, guárdala y súbela desde tu galería.");
+                alert("No se pudo cargar la imagen al panel: " + error.message);
 
             } finally {
 
@@ -1064,11 +1150,51 @@
 
         // ==========================================
 
+        // Imágenes del historial: ya no hay una URL pública de Drive para
+
+        // poner directo en <img src>. En su lugar armamos un <img> vacío
+
+        // (con un data-file-id) y, después de insertarlo en el DOM,
+
+        // descargamos la imagen por chunks desde Apps Script y recién ahí
+
+        // le asignamos el src como data: URL.
+
+        async function cargarMiniatura(imgEl, urlWebHook, fileId) {
+
+            if (!imgEl || !fileId || fileId === "undefined") return;
+
+            try {
+
+                const dataUrl = await descargarComoDataURL(urlWebHook, fileId);
+
+                imgEl.src = dataUrl;
+
+                const link = imgEl.closest("a[data-pendiente-href]");
+
+                if (link) { link.href = dataUrl; link.removeAttribute("data-pendiente-href"); }
+
+            } catch (e) {
+
+                console.error("No se pudo descargar la miniatura " + fileId + ":", e);
+
+                imgEl.alt = "⚠️ No se pudo cargar (¿caducó tras 6h?)";
+
+            }
+
+        }
+
+
+
         function renderizarHistorial(slot) {
 
             const contenedor = el("contenedorHistorial", slot);
 
             contenedor.innerHTML = "";
+
+            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+
+            const pendientesDeCargar = []; // [{elId, fileId}]
 
             estado[slot].historialTareas.forEach(tarea => {
 
@@ -1082,55 +1208,55 @@
 
                 if (tarea.estado === 'completado') {
 
-                    if (tarea.urlResultado) {
+                    if (tarea.idResultado) {
 
-                        let imgId = tarea.urlResultado.split('id=')[1];
-
-                        let urlVisualizacion = `https://drive.google.com/thumbnail?id=${imgId}&sz=w1000`;
+                        const elImgId = `mini-${slot}-${tarea.id}`;
 
 
 
-                        if (tarea.urlResultadoMalla) {
+                        if (tarea.idResultadoMalla) {
 
-                            let imgIdMalla = tarea.urlResultadoMalla.split('id=')[1];
-
-                            let urlVisualizacionMalla = `https://drive.google.com/thumbnail?id=${imgIdMalla}&sz=w1000`;
+                            const elImgIdMalla = `mini-malla-${slot}-${tarea.id}`;
 
                             htmlImg = `
 
                             <div class="grid grid-cols-2 gap-2 mt-2">
 
-                                <a href="${tarea.urlResultado}" target="_blank">
+                                <a data-pendiente-href href="#" target="_blank">
 
                                     <div class="text-[10px] text-center text-gray-400 mb-1">Corte Original</div>
 
-                                    <img src="${urlVisualizacion}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
+                                    <img id="${elImgId}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition bg-gray-800">
 
                                 </a>
 
-                                <a href="${tarea.urlResultadoMalla}" target="_blank">
+                                <a data-pendiente-href href="#" target="_blank">
 
                                     <div class="text-[10px] text-center text-gray-400 mb-1">Con Malla</div>
 
-                                    <img src="${urlVisualizacionMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
+                                    <img id="${elImgIdMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition bg-gray-800">
 
                                 </a>
 
                             </div>`;
 
+                            pendientesDeCargar.push({ elId: elImgIdMalla, fileId: tarea.idResultadoMalla });
+
                         } else {
 
-                            htmlImg = `<a href="${tarea.urlResultado}" target="_blank"><img src="${urlVisualizacion}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
+                            htmlImg = `<a data-pendiente-href href="#" target="_blank"><img id="${elImgId}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition bg-gray-800"></a>`;
 
                         }
+
+                        pendientesDeCargar.push({ elId: elImgId, fileId: tarea.idResultado });
 
                         botonesAccion = `
 
                         <div class="flex gap-2 mt-3">
 
-                            <button onclick="cargarImagenEnLienzo(${slot}, '${urlVisualizacion}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
+                            <button onclick="cargarImagenEnLienzo(${slot}, '${tarea.idResultado}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
 
-                            <button onclick="eliminarTarea(${slot}, '${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
+                            <button onclick="eliminarTarea(${slot}, '${tarea.id}', '${tarea.idResultado}', '${tarea.idResultadoMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
 
                         </div>`;
 
@@ -1180,6 +1306,18 @@
 
             });
 
+
+
+            // Recién ahora los <img> están en el DOM: pedimos cada miniatura
+
+            // por chunks en paralelo (no bloquea el resto del render).
+
+            pendientesDeCargar.forEach(p => {
+
+                cargarMiniatura(document.getElementById(p.elId), urlWebHook, p.fileId);
+
+            });
+
         }
 
 
@@ -1200,15 +1338,11 @@
 
                             if (datos.estado === "completado") {
 
-                                estado[slot].historialTareas[index].urlResultado = datos.url_resultado;
+                                estado[slot].historialTareas[index].idResultado = datos.id_resultado;
 
-                                estado[slot].historialTareas[index].driveId = datos.drive_id;
+                                if (datos.id_resultado_malla) {
 
-                                if (datos.url_resultado_malla) {
-
-                                    estado[slot].historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
-
-                                    estado[slot].historialTareas[index].driveIdMalla = datos.drive_id_malla;
+                                    estado[slot].historialTareas[index].idResultadoMalla = datos.id_resultado_malla;
 
                                 }
 
@@ -1216,9 +1350,9 @@
 
                                 // (PNG transparente) para poder probar fondos rápido después.
 
-                                if (estado[slot].historialTareas[index].comando === "cortar_sin_fondo" && datos.url_resultado) {
+                                if (estado[slot].historialTareas[index].comando === "cortar_sin_fondo" && datos.id_resultado) {
 
-                                    estado[slot].urlSinFondo = datos.url_resultado;
+                                    estado[slot].urlSinFondo = datos.id_resultado;
 
                                     el("probadorFondos", slot).classList.remove("hidden");
 
@@ -1788,11 +1922,11 @@
 
                     const dataOrig = await subirADrive(archivo, slot, archivo.name);
 
-                    let urlOriginal = dataOrig.url;
+                    let idOriginal = dataOrig.fileId;
 
-                    let urlMascara = "";
+                    let idMascara = "";
 
-                    let urlRostroReferencia = "";
+                    let idRostroReferencia = "";
 
 
 
@@ -1804,7 +1938,7 @@
 
                         const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
 
-                        urlMascara = dataMascara.url;
+                        idMascara = dataMascara.fileId;
 
                     }
 
@@ -1826,7 +1960,7 @@
 
                             const dataRostro = await subirADrive(archivoRostro, slot, archivoRostro.name);
 
-                            urlRostroReferencia = dataRostro.url;
+                            idRostroReferencia = dataRostro.fileId;
 
                         }
 
@@ -1842,7 +1976,7 @@
 
                             const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
 
-                            urlMascara = dataMascara.url;
+                            idMascara = dataMascara.fileId;
 
                         }
 
@@ -1876,11 +2010,11 @@
 
                         malla_id: mallaElegida,
 
-                        url_imagen: urlOriginal,
+                        id_imagen: idOriginal,
 
-                        url_mascara: urlMascara,
+                        id_mascara: idMascara,
 
-                        url_imagen_rostro: urlRostroReferencia,
+                        id_imagen_rostro: idRostroReferencia,
 
                         crop_x: estado[slot].datosRecorte ? estado[slot].datosRecorte.x : 0,
 
@@ -1904,9 +2038,9 @@
 
                         estado: 'pendiente',
 
-                        urlOriginal: urlOriginal,
+                        idOriginal: idOriginal,
 
-                        urlResultado: null
+                        idResultado: null
 
                     };
 
@@ -1998,7 +2132,7 @@
 
                         malla_id: el("select-malla", slot).value,
 
-                        url_imagen: estado[slot].urlSinFondo,
+                        id_imagen: estado[slot].urlSinFondo,
 
                         fecha: new Date().toISOString()
 
@@ -2012,9 +2146,9 @@
 
                         estado: 'pendiente',
 
-                        urlOriginal: estado[slot].urlSinFondo,
+                        idOriginal: estado[slot].urlSinFondo,
 
-                        urlResultado: null
+                        idResultado: null
 
                     });
 

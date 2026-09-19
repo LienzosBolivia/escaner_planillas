@@ -251,6 +251,22 @@
 
 
 
+                <div class="mb-6 bg-gray-700 p-3 rounded">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-2">
+
+                        Corrección Anti-Naranja (piel): <span id="valorFuerzaNaranja-__SLOT__" class="text-orange-400">0.35</span>
+
+                    </label>
+
+                    <input type="range" id="fuerzaNaranja-__SLOT__" min="0" max="1" step="0.05" value="0.35" class="w-full cursor-pointer">
+
+                    <p class="text-xs text-gray-400 mt-1">0 = sin corrección, 1 = corrección máxima.</p>
+
+                </div>
+
+
+
                 <button id="btnEnviar-__SLOT__" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg">
 
                     Enviar Tarea al Servidor de la Pestaña __SLOT__
@@ -1315,6 +1331,14 @@
 
 
 
+            el("fuerzaNaranja", slot).addEventListener("input", function() {
+
+                el("valorFuerzaNaranja", slot).innerText = this.value;
+
+            });
+
+
+
             el("btnPrender", slot).addEventListener("click", () => prenderServidor(slot));
 
             el("btnApagar", slot).addEventListener("click", () => apagarServidor(slot));
@@ -1926,6 +1950,8 @@
                         slot: String(slot),
 
                         fidelidad: parseFloat(el("fidelidadIA", slot).value),
+
+                        fuerza_naranja: parseFloat(el("fuerzaNaranja", slot).value),
 
                         fondo_id: el("fondoIA", slot).value,
 

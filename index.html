@@ -20,6 +20,21 @@
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 
+    <style>
+        /* Bloquear menú contextual de imágenes y gestos nativos en el área de recorte */
+        .cropper-container, 
+        .cropper-container img, 
+        .cropper-drag-box, 
+        .cropper-crop-box, 
+        canvas, 
+        [id^="contenedorLienzo-"] {
+            -webkit-touch-callout: none !important;
+            -webkit-user-select: none !important;
+            user-select: none !important;
+            touch-action: none !important;
+            outline: none !important;
+        }
+    </style>
 </head>
 
 <body class="bg-gray-900 text-white min-h-screen p-4 md:p-8 flex flex-col items-center">
@@ -384,32 +399,42 @@
             });
         }
 
-        async function llamarAppsScript(urlWebHook, cuerpo) {
-            const respuesta = await fetch(urlWebHook, {
-                method: "POST",
-                headers: {
-                    "Content-Type": "text/plain;charset=utf-8" // evita el preflight OPTIONS que Apps Script rechaza
-                },
-                body: JSON.stringify(cuerpo),
-                redirect: "follow"
-            });
+        async function llamarAppsScript(urlWebHook, cuerpo, reintentos = 3) {
+            for (let intento = 1; intento <= reintentos; intento++) {
+                let textoCrudo;
+                try {
+                    const respuesta = await fetch(urlWebHook, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "text/plain;charset=utf-8" // evita el preflight OPTIONS que Apps Script rechaza
+                        },
+                        body: JSON.stringify(cuerpo),
+                        redirect: "follow"
+                    });
+                    textoCrudo = await respuesta.text();
+                } catch (error) {
+                    // Fallo de red (script "dormido" por cold start): reintentamos
+                    if (intento === reintentos) throw error;
+                    await new Promise(r => setTimeout(r, 1000 * intento));
+                    continue;
+                }
 
-            const textoCrudo = await respuesta.text();
-            let datos;
-            try {
-                datos = JSON.parse(textoCrudo);
-            } catch (e) {
-                // Google devolvió HTML en vez de JSON: casi siempre es que el
-                // despliegue de Apps Script no tiene una "Nueva versión" publicada
-                // con el código actual, o el acceso no está en "Cualquier usuario".
-                console.error("Respuesta cruda de Apps Script (no es JSON):", textoCrudo.slice(0, 500));
-                throw new Error(
-                    "Google Apps Script devolvió una página en vez de JSON (probablemente falta " +
-                    "publicar una 'Nueva versión' del despliegue, o el acceso no es 'Cualquier usuario'). " +
-                    "Detalle: " + textoCrudo.slice(0, 150)
-                );
+                try {
+                    return JSON.parse(textoCrudo); // JSON válido: éxito
+                } catch (e) {
+                    // Google devolvió HTML en vez de JSON: puede ser cold start
+                    // despertando a medias, o que falte publicar una "Nueva versión".
+                    console.error("Respuesta cruda de Apps Script (no es JSON):", textoCrudo.slice(0, 500));
+                    if (intento === reintentos) {
+                        throw new Error(
+                            "Google Apps Script devolvió una página en vez de JSON (probablemente falta " +
+                            "publicar una 'Nueva versión' del despliegue, o el acceso no es 'Cualquier usuario'). " +
+                            "Detalle: " + textoCrudo.slice(0, 150)
+                        );
+                    }
+                    await new Promise(r => setTimeout(r, 1000 * intento));
+                }
             }
-            return datos;
         }
 
         async function subirADrive(archivoOBlob, slotActual, nombreArchivo) {

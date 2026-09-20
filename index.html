@@ -2141,6 +2141,37 @@
 
     </script>
 
+    <script>
+        // 1. BLOQUEO MILITAR DE MENÚS NATIVOS EN MÓVILES
+        // Complementa el CSS de touch-action/-webkit-touch-callout: el CSS ya
+        // evita el "long-press" nativo, y esto además cancela el evento
+        // contextmenu si algún navegador lo dispara igual sobre el cropper.
+        document.addEventListener('contextmenu', function(e) {
+            if (e.target.closest('.cropper-container') || e.target.closest('canvas')) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        }, { passive: false });
+
+        // 2. AUTO-GUARDADO DE RECORTES AL ENVIAR
+        // Si el usuario recortó la imagen pero olvidó pulsar "Aplicar Recorte"
+        // antes de "Enviar Tarea", el recorte manual se perdía silenciosamente.
+        // Interceptamos el clic de envío (capture=true, ANTES de la lógica de
+        // envío) y disparamos el guardado del recorte automáticamente.
+        document.addEventListener('click', function(e) {
+            if (e.target.id && e.target.id.startsWith('btnEnviar-')) {
+                const slot = e.target.id.split('-')[1];
+
+                if (estado[slot] && estado[slot].cropperInstance) {
+                    const btnAplicar = document.getElementById(`btnAplicarRecorte-${slot}`);
+                    if (btnAplicar && !btnAplicar.classList.contains('hidden')) {
+                        btnAplicar.click(); // fuerza el guardado de coordenadas
+                    }
+                }
+            }
+        }, true); // 'true' asegura que esto se ejecute ANTES que la lógica de envío
+    </script>
 </body>
 
 </html>

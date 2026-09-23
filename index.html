@@ -307,6 +307,18 @@
 
 
 
+                        <!-- Botones de Emergencia (control manual, sin automatismos por tiempo) -->
+
+                        <div class="flex justify-between gap-2">
+
+                            <button onclick="forzarDesbloqueo('__SLOT__')" class="w-full bg-red-950 hover:bg-red-900 text-[10px] text-white py-2 rounded font-bold shadow transition border border-red-700">🔓 Forzar Desbloqueo</button>
+
+                            <button onclick="reencolarTareaAtascada('__SLOT__')" class="w-full bg-orange-900 hover:bg-orange-800 text-[10px] text-white py-2 rounded font-bold shadow transition border border-orange-700">🔄 Reencolar Atascada</button>
+
+                        </div>
+
+
+
                         <!-- Barra de Carga (progreso REAL reportado por los logs del notebook de Kaggle) -->
 
                         <div id="contenedorCarga-__SLOT__" class="hidden w-full flex-col items-center bg-gray-800 p-3 rounded border border-gray-600 shadow-inner">
@@ -692,6 +704,86 @@
                 estado[slot].historialTareas = estado[slot].historialTareas.filter(t => t.id !== id);
 
                 guardarEnLocalStorage(slot);
+
+            }
+
+        };
+
+
+
+        // Botón de emergencia: libera el candado de sesión en Firebase si Kaggle
+
+        // se apagó de golpe y el slot quedó "trabado" sin poder volver a arrancar.
+
+        window.forzarDesbloqueo = async function(slot) {
+
+            if (confirm(`¿Estás seguro? Solo usa esto si Kaggle se apagó por error y el Slot ${slot} quedó bloqueado.`)) {
+
+                try {
+
+                    await update(ref(db, `servidores/slot_${slot}`), { sesion_activa: "" });
+
+                    alert(`✅ Slot ${slot} desbloqueado. Ya puedes darle Run en Kaggle.`);
+
+                } catch (err) {
+
+                    alert("Error: " + err);
+
+                }
+
+            }
+
+        };
+
+
+
+        // Botón de emergencia: devuelve a "pendiente" cualquier tarea de este slot
+
+        // que haya quedado atascada en "procesando" (por ejemplo si Kaggle murió
+
+        // a mitad de una tarea).
+
+        window.reencolarTareaAtascada = async function(slot) {
+
+            if (confirm(`¿Devolver la tarea atascada del Slot ${slot} a la fila de pendientes?`)) {
+
+                try {
+
+                    const snap = await get(ref(db, "tareas_ia"));
+
+                    const actualizaciones = [];
+
+                    let reencolada = false;
+
+                    if (snap.exists()) {
+
+                        snap.forEach(hijo => {
+
+                            const val = hijo.val();
+
+                            if (String(val.slot) === String(slot) && val.estado === 'procesando') {
+
+                                actualizaciones.push(update(ref(db, `tareas_ia/${hijo.key}`), { estado: 'pendiente' }));
+
+                                reencolada = true;
+
+                            }
+
+                        });
+
+                    }
+
+                    await Promise.all(actualizaciones);
+
+                    if (reencolada) alert('✅ Tarea rescatada y reencolada con éxito.');
+
+                    else alert('ℹ️ No se encontraron tareas procesando en este slot.');
+
+                } catch (err) {
+
+                    alert("Error: " + err);
+
+                }
 
             }
 

@@ -95,6 +95,14 @@
 
                     <p class="text-[11px] text-gray-500 mt-1">Las dos cosas son independientes y podes usar una, la otra, o ambas: 1) Si subis esta foto, se recorta el rostro y se pone en la imagen del panel. 2) Si pintas con el pincel de abajo sobre el logo de la IA (Gemini u otra), se borra ese logo. Si no subis foto, no se toca el rostro; si no pintas nada, no se toca el logo.</p>
 
+                    <div id="contenedorUsarCodeformer-__SLOT__" class="hidden mt-2 flex items-center gap-2 bg-gray-900 p-2 rounded">
+
+                        <input type="checkbox" id="usarCodeformer-__SLOT__" checked class="w-4 h-4 cursor-pointer">
+
+                        <label for="usarCodeformer-__SLOT__" class="text-xs font-bold text-gray-300 cursor-pointer">✨ Usar CodeFormer para restaurar el rostro de referencia (recomendado). Si lo desmarcas, solo se trasplanta el rostro tal cual, sin restaurarlo.</label>
+
+                    </div>
+
                 </div>
 
 
@@ -1799,17 +1807,32 @@
 
             const contenedorRostroRef = el("contenedorRostroRef", slot);
 
+            const contenedorUsarCodeformer = el("contenedorUsarCodeformer", slot);
+
             const selectComando = el("comando", slot);
 
             function actualizarVisibilidadRostroRef() {
 
-                if (selectComando.value === "restaurar_rostro_logo") {
+                if (selectComando.value === "restaurar_rostro_logo" || selectComando.value === "proceso_completo") {
 
                     contenedorRostroRef.classList.remove("hidden");
 
                 } else {
 
                     contenedorRostroRef.classList.add("hidden");
+
+                }
+
+                // La casilla "Usar CodeFormer" solo aplica al trasplante de rostro
+                // dentro de Proceso Completo (en Restaurar Rostro + Quitar Logo el
+                // rostro se pega tal cual, sin pasar por CodeFormer).
+                if (selectComando.value === "proceso_completo") {
+
+                    contenedorUsarCodeformer.classList.remove("hidden");
+
+                } else {
+
+                    contenedorUsarCodeformer.classList.add("hidden");
 
                 }
 
@@ -2021,7 +2044,7 @@
 
 
 
-                    if (comando === "recorte_manual" && !estado[slot].datosRecorte) {
+                    if ((comando === "recorte_manual" || comando === "proceso_completo") && !estado[slot].datosRecorte) {
 
                         throw new Error("Debes usar la herramienta '✂️ Recorte Manual' y darle a '✅ Aplicar Recorte' antes de enviar.");
 
@@ -2062,6 +2085,8 @@
                         url_imagen_rostro: urlRostroReferencia,
 
                         id_imagen_rostro: idImagenRostro || "",
+
+                        usar_codeformer: el("usarCodeformer", slot).checked,
 
                         crop_x: estado[slot].datosRecorte ? estado[slot].datosRecorte.x : 0,
 

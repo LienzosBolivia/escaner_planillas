@@ -125,6 +125,15 @@
 
                 <div id="guiaRecorte-__SLOT__" class="hidden mb-4 bg-gray-900 border border-yellow-600 text-yellow-300 text-xs font-bold p-2 rounded text-center"></div>
 
+                <div id="ajusteTamanoRecorte-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-sm font-bold text-gray-300">📏 Tamaño del encuadre:</span>
+                        <span id="valorTamanoRecorte-__SLOT__" class="text-sm font-bold text-yellow-300">100%</span>
+                    </div>
+                    <input type="range" id="sliderTamanoRecorte-__SLOT__" min="40" max="150" value="100" class="w-full cursor-pointer">
+                    <p class="text-[11px] text-gray-400 mt-1">Menos % = cuadro más chico (más zoom). Más % = más aire alrededor.</p>
+                </div>
+
 
 
                 <!-- Probador rápido de fondos: aparece cuando ya existe un recorte "sin fondo" -->
@@ -678,8 +687,8 @@
                 h = altoPersona * 1.1;
                 if (ratio) w = h * ratio;
             }
-            // Aire arriba menor que abajo (35% / 65% del espacio sobrante)
-            const y = pb.y0 - (h - altoPersona) * 0.35;
+            // Aire arriba menor que abajo (25% / 75% del espacio sobrante)
+            const y = pb.y0 - (h - altoPersona) * 0.25;
             return { x: cx - w / 2, y: y, width: w, height: h };
         }
 
@@ -1779,6 +1788,29 @@
 
                     btnCancelarRecorte.classList.remove("hidden");
 
+                    const sliderTam = el("sliderTamanoRecorte", slot);
+                    const valorTam = el("valorTamanoRecorte", slot);
+                    const cajaTam = el("ajusteTamanoRecorte", slot);
+                    estado[slot].baseEncuadre = null;
+                    sliderTam.value = 100;
+                    valorTam.innerText = "100%";
+                    cajaTam.classList.remove("hidden");
+                    const reiniciarSlider = () => { estado[slot].baseEncuadre = null; sliderTam.value = 100; valorTam.innerText = "100%"; };
+                    // Si el usuario mueve/redimensiona el cuadro a mano, el slider vuelve a 100% sobre el nuevo cuadro
+                    imgFondo.addEventListener("cropend", reiniciarSlider);
+                    sliderTam.oninput = () => {
+                        const c = estado[slot].cropperInstance;
+                        if (!c) return;
+                        if (!estado[slot].baseEncuadre) {
+                            const d = c.getData();
+                            estado[slot].baseEncuadre = { cx: d.x + d.width / 2, cy: d.y + d.height / 2, w: d.width, h: d.height };
+                        }
+                        const b = estado[slot].baseEncuadre;
+                        const f = sliderTam.value / 100;
+                        valorTam.innerText = sliderTam.value + "%";
+                        c.setData({ x: b.cx - b.w * f / 2, y: b.cy - b.h * f / 2, width: b.w * f, height: b.h * f });
+                    };
+
                     const btnAuto = el("btnAutoEncuadre", slot);
                     btnAuto.classList.remove("hidden");
                     btnAuto.onclick = async () => {
@@ -1798,6 +1830,7 @@
                                 width: r.width,
                                 height: r.height
                             });
+                            reiniciarSlider();
                             guia.innerText = "🎯 Encuadre automático listo: misma distancia a ambos lados de la cabeza. Podés ajustarlo a mano antes de aplicar.";
                         } catch (err) {
                             console.error(err);
@@ -1861,6 +1894,8 @@
 
                     el("btnAutoEncuadre", slot).classList.add("hidden");
 
+                    el("ajusteTamanoRecorte", slot).classList.add("hidden");
+
                 }, { once: true });
 
                 imgFondo.src = estado[slot].urlOriginalImagen;
@@ -1912,6 +1947,8 @@
                     el("btnGirarRecorte", slot).classList.add("hidden");
 
                     el("btnAutoEncuadre", slot).classList.add("hidden");
+
+                    el("ajusteTamanoRecorte", slot).classList.add("hidden");
 
                     alert("✅ Coordenadas expansivas guardadas. ¡El servidor armará el nuevo tamaño!");
 

@@ -119,6 +119,8 @@
 
                     <button id="btnGirarRecorte-__SLOT__" title="Girar el cuadro de corte (vertical ↔ horizontal)" class="hidden bg-blue-600 hover:bg-blue-500 text-white text-sm px-3 py-2 rounded font-bold shadow transition">🔄 Girar</button>
 
+                    <button id="btnAutoEncuadre-__SLOT__" title="Centrar automáticamente a la persona con la misma distancia a ambos lados de la cabeza" class="hidden bg-purple-600 hover:bg-purple-500 text-white text-sm px-3 py-2 rounded font-bold shadow transition">🎯 Auto</button>
+
                 </div>
 
                 <div id="guiaRecorte-__SLOT__" class="hidden mb-4 bg-gray-900 border border-yellow-600 text-yellow-300 text-xs font-bold p-2 rounded text-center"></div>
@@ -604,6 +606,82 @@
         function el(id, slot) { return document.getElementById(`${id}-${slot}`); }
 
 
+
+        // ==========================================
+        // DETECTORES PARA EL AUTO-ENCUADRE (MediaPipe, corre en el navegador)
+        // Se cargan solo la primera vez que se usa el botón "🎯 Auto".
+        // ==========================================
+        let _detectoresPromesa = null;
+        function obtenerDetectores() {
+            if (_detectoresPromesa) return _detectoresPromesa;
+            _detectoresPromesa = (async () => {
+                const base = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+                const vision = await import(`${base}/vision_bundle.mjs`);
+                const fileset = await vision.FilesetResolver.forVisionTasks(`${base}/wasm`);
+                const modelos = "https://storage.googleapis.com/mediapipe-models";
+                const cara = await vision.FaceDetector.createFromOptions(fileset, {
+                    baseOptions: { modelAssetPath: `${modelos}/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite` },
+                    runningMode: "IMAGE",
+                    minDetectionConfidence: 0.4
+                });
+                const persona = await vision.ObjectDetector.createFromOptions(fileset, {
+                    baseOptions: { modelAssetPath: `${modelos}/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite` },
+                    runningMode: "IMAGE",
+                    scoreThreshold: 0.3,
+                    categoryAllowlist: ["person"]
+                });
+                return { cara, persona };
+            })().catch(err => { _detectoresPromesa = null; throw err; });
+            return _detectoresPromesa;
+        }
+
+        // Calcula el cuadro de recorte (en píxeles de la imagen original) para que
+        // la persona quede con la MISMA distancia a ambos lados de la cabeza.
+        // ratio = ancho/alto del cuadro (null = libre).
+        async function calcularAutoEncuadre(urlImagen, ratio) {
+            const img = new Image();
+            img.src = urlImagen;
+            await img.decode();
+            const { cara, persona } = await obtenerDetectores();
+
+            const caras = cara.detect(img).detections.map(d => d.boundingBox);
+            const personas = persona.detect(img).detections.map(d => d.boundingBox);
+            const area = b => b.width * b.height;
+            if (!caras.length && !personas.length) throw new Error("No se detectó ninguna persona en la imagen.");
+
+            const rostro = caras.length ? caras.sort((a, b) => area(b) - area(a))[0] : null;
+            let cuerpo = null;
+            if (personas.length) {
+                const lista = personas.sort((a, b) => area(b) - area(a));
+                cuerpo = (rostro && lista.find(b =>
+                    rostro.originX + rostro.width / 2 >= b.originX && rostro.originX + rostro.width / 2 <= b.originX + b.width &&
+                    rostro.originY + rostro.height / 2 >= b.originY && rostro.originY + rostro.height / 2 <= b.originY + b.height
+                )) || lista[0];
+            }
+
+            // Centro de la cabeza (si no hay rostro, usamos el centro del cuerpo)
+            const cx = rostro ? rostro.originX + rostro.width / 2 : cuerpo.originX + cuerpo.width / 2;
+            // Caja de la persona (si no hay cuerpo detectado, la estimamos a partir del rostro)
+            const pb = cuerpo
+                ? { x0: cuerpo.originX, y0: cuerpo.originY, x1: cuerpo.originX + cuerpo.width, y1: cuerpo.originY + cuerpo.height }
+                : { x0: cx - rostro.width * 2, y0: rostro.originY - rostro.height * 0.5, x1: cx + rostro.width * 2, y1: rostro.originY + rostro.height * 5 };
+            // La cabeza nunca debe quedar fuera por una caja de cuerpo imprecisa
+            if (rostro) pb.y0 = Math.min(pb.y0, rostro.originY - rostro.height * 0.3);
+
+            const MARGEN = 1.15; // 15% de aire a cada lado
+            const medioAncho = Math.max(cx - pb.x0, pb.x1 - cx) * MARGEN;
+            const altoPersona = pb.y1 - pb.y0;
+            let w = medioAncho * 2;
+            let h = ratio ? w / ratio : altoPersona * 1.25;
+            // Si la persona no entra a lo alto, agrandar manteniendo la proporción
+            if (h < altoPersona * 1.1) {
+                h = altoPersona * 1.1;
+                if (ratio) w = h * ratio;
+            }
+            // Aire arriba menor que abajo (35% / 65% del espacio sobrante)
+            const y = pb.y0 - (h - altoPersona) * 0.35;
+            return { x: cx - w / 2, y: y, width: w, height: h };
+        }
 
         // Tamaños de impresión disponibles, en cm (ancho x alto), usados para
 
@@ -1701,6 +1779,34 @@
 
                     btnCancelarRecorte.classList.remove("hidden");
 
+                    const btnAuto = el("btnAutoEncuadre", slot);
+                    btnAuto.classList.remove("hidden");
+                    btnAuto.onclick = async () => {
+                        const c = estado[slot].cropperInstance;
+                        if (!c) return;
+                        btnAuto.disabled = true;
+                        guia.classList.remove("hidden");
+                        guia.innerText = "🎯 Detectando a la persona... (la primera vez descarga el detector, puede tardar unos segundos)";
+                        try {
+                            let ratio = null;
+                            if (par) ratio = estado[slot].recorteHorizontal ? par[1] / par[0] : par[0] / par[1];
+                            const r = await calcularAutoEncuadre(estado[slot].urlOriginalImagen, ratio);
+                            // El cropper trabaja sobre la imagen con margen extra: sumamos el desplazamiento
+                            c.setData({
+                                x: r.x + estado[slot].extraX,
+                                y: r.y + estado[slot].extraY,
+                                width: r.width,
+                                height: r.height
+                            });
+                            guia.innerText = "🎯 Encuadre automático listo: misma distancia a ambos lados de la cabeza. Podés ajustarlo a mano antes de aplicar.";
+                        } catch (err) {
+                            console.error(err);
+                            guia.innerText = "⚠️ No se pudo encuadrar automáticamente: " + (err.message || err);
+                        } finally {
+                            btnAuto.disabled = false;
+                        }
+                    };
+
                     if (par) {
 
                         btnGirar.classList.remove("hidden");
@@ -1753,6 +1859,8 @@
 
                     el("btnGirarRecorte", slot).classList.add("hidden");
 
+                    el("btnAutoEncuadre", slot).classList.add("hidden");
+
                 }, { once: true });
 
                 imgFondo.src = estado[slot].urlOriginalImagen;
@@ -1802,6 +1910,8 @@
                     btnCancelarRecorte.classList.add("hidden");
 
                     el("btnGirarRecorte", slot).classList.add("hidden");
+
+                    el("btnAutoEncuadre", slot).classList.add("hidden");
 
                     alert("✅ Coordenadas expansivas guardadas. ¡El servidor armará el nuevo tamaño!");
 

@@ -117,6 +117,8 @@
 
                     <button id="btnCancelarRecorte-__SLOT__" class="hidden bg-red-600 hover:bg-red-500 text-white text-sm px-4 py-2 rounded font-bold shadow transition">❌</button>
 
+                    <button id="btnGirarRecorte-__SLOT__" title="Girar el cuadro de corte (vertical ↔ horizontal)" class="hidden bg-blue-600 hover:bg-blue-500 text-white text-sm px-3 py-2 rounded font-bold shadow transition">🔄 Girar</button>
+
                 </div>
 
                 <div id="guiaRecorte-__SLOT__" class="hidden mb-4 bg-gray-900 border border-yellow-600 text-yellow-300 text-xs font-bold p-2 rounded text-center"></div>
@@ -574,6 +576,8 @@
                 cropperInstance: null,
 
                 datosRecorte: null,
+
+                recorteHorizontal: false,
 
                 urlOriginalImagen: "",
 
@@ -1593,6 +1597,8 @@
 
                 if (estado[slot].cropperInstance) return;
 
+                estado[slot].recorteHorizontal = false;
+
                 canvas.classList.add("hidden");
 
                 controlesPincel.classList.add("hidden");
@@ -1625,6 +1631,10 @@
 
                     const par = DIMENSIONES_CM[dimensionElegida]; // [ancho_cm, alto_cm] o undefined si "original"
 
+                    const btnGirar = el("btnGirarRecorte", slot);
+
+                    const textoDim = () => estado[slot].recorteHorizontal ? `${par[1]} x ${par[0]}` : `${par[0]} x ${par[1]}`;
+
                     const guia = el("guiaRecorte", slot);
 
 
@@ -1649,7 +1659,7 @@
 
                         guia.classList.remove("hidden");
 
-                        guia.innerText = `📐 Recorte bloqueado a proporción ${dimensionElegida.replace('x', ' x ')} cm — movelo/agrandalo hasta centrar a la persona.`;
+                        guia.innerText = `📐 Recorte bloqueado a proporción ${textoDim()} cm (vertical) — movelo/agrandalo hasta centrar a la persona. Usá 🔄 Girar para cortar horizontal.`;
 
                     } else {
 
@@ -1677,7 +1687,7 @@
 
                             const altoCm = (ev.detail.height / DPI * 2.54).toFixed(1);
 
-                            guia.innerText = `📐 Recorte actual ≈ ${anchoCm} x ${altoCm} cm (a 300dpi) — proporción fija ${dimensionElegida.replace('x', ' x ')} cm.`;
+                            guia.innerText = `📐 Recorte actual ≈ ${anchoCm} x ${altoCm} cm (a 300dpi) — proporción fija ${textoDim()} cm (${estado[slot].recorteHorizontal ? 'horizontal' : 'vertical'}).`;
 
                         });
 
@@ -1690,6 +1700,30 @@
                     btnAplicarRecorte.classList.remove("hidden");
 
                     btnCancelarRecorte.classList.remove("hidden");
+
+                    if (par) {
+
+                        btnGirar.classList.remove("hidden");
+
+                        btnGirar.onclick = () => {
+                            const c = estado[slot].cropperInstance;
+                            if (!c) return;
+                            estado[slot].recorteHorizontal = !estado[slot].recorteHorizontal;
+                            const ratio = par[0] / par[1];
+                            const nuevoRatio = estado[slot].recorteHorizontal ? 1 / ratio : ratio;
+                            // Conservar el centro y el área aproximada del cuadro al girarlo
+                            const cb = c.getCropBoxData();
+                            const cx = cb.left + cb.width / 2;
+                            const cy = cb.top + cb.height / 2;
+                            const area = cb.width * cb.height;
+                            let nw = Math.sqrt(area * nuevoRatio);
+                            let nh = nw / nuevoRatio;
+                            c.setAspectRatio(nuevoRatio);
+                            c.setCropBoxData({ left: cx - nw / 2, top: cy - nh / 2, width: nw, height: nh });
+                            guia.innerText = `📐 Cuadro girado a ${estado[slot].recorteHorizontal ? "HORIZONTAL" : "VERTICAL"} (${textoDim()} cm).`;
+                        };
+
+                    }
 
                 }, { once: true });
 
@@ -1717,6 +1751,8 @@
 
                     btnCancelarRecorte.classList.add("hidden");
 
+                    el("btnGirarRecorte", slot).classList.add("hidden");
+
                 }, { once: true });
 
                 imgFondo.src = estado[slot].urlOriginalImagen;
@@ -1739,7 +1775,9 @@
 
                     width: datosFalsos.width,
 
-                    height: datosFalsos.height
+                    height: datosFalsos.height,
+
+                    horizontal: estado[slot].recorteHorizontal
 
                 };
 
@@ -1762,6 +1800,8 @@
                     btnAplicarRecorte.classList.add("hidden");
 
                     btnCancelarRecorte.classList.add("hidden");
+
+                    el("btnGirarRecorte", slot).classList.add("hidden");
 
                     alert("✅ Coordenadas expansivas guardadas. ¡El servidor armará el nuevo tamaño!");
 
@@ -2121,6 +2161,8 @@
                         crop_w: estado[slot].datosRecorte ? estado[slot].datosRecorte.width : 0,
 
                         crop_h: estado[slot].datosRecorte ? estado[slot].datosRecorte.height : 0,
+
+                        orientacion: (estado[slot].datosRecorte && estado[slot].datosRecorte.horizontal) ? "horizontal" : "vertical",
 
                         fecha: new Date().toISOString()
 

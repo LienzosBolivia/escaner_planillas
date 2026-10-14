@@ -132,6 +132,12 @@
                     </div>
                     <input type="range" id="sliderTamanoRecorte-__SLOT__" min="40" max="150" value="100" class="w-full cursor-pointer">
                     <p class="text-[11px] text-gray-400 mt-1">Menos % = cuadro más chico (más zoom). Más % = más aire alrededor.</p>
+                    <div class="flex justify-between items-center mt-3 mb-1">
+                        <span class="text-sm font-bold text-gray-300">↕ Subir / bajar el cuadro:</span>
+                        <span id="valorPosVerticalRecorte-__SLOT__" class="text-sm font-bold text-yellow-300">Posición original</span>
+                    </div>
+                    <input type="range" id="sliderPosVerticalRecorte-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                    <p class="text-[11px] text-gray-400 mt-1">Izquierda = sube el cuadro (muestra más arriba). Derecha = lo baja. El centro horizontal no se mueve.</p>
                 </div>
 
 
@@ -639,19 +645,66 @@
                     scoreThreshold: 0.3,
                     categoryAllowlist: ["person"]
                 });
-                return { cara, persona };
+                // Segmentador de personas: permite medir la silueta REAL de la cabeza (pelo incluido)
+                let segmentador = null;
+                try {
+                    segmentador = await vision.ImageSegmenter.createFromOptions(fileset, {
+                        baseOptions: { modelAssetPath: `${modelos}/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite` },
+                        runningMode: "IMAGE",
+                        outputCategoryMask: true,
+                        outputConfidenceMasks: false
+                    });
+                } catch (e) { console.warn("Segmentador no disponible, se usará la caja del rostro:", e); }
+                return { cara, persona, segmentador };
             })().catch(err => { _detectoresPromesa = null; throw err; });
             return _detectoresPromesa;
         }
 
+        // Mide el ancho REAL de la cabeza usando la silueta de la persona.
+        // Devuelve { izq, der } en píxeles de la imagen original, o null si no es confiable.
+        function medirCabeza(segmentador, img, rostro) {
+            const res = segmentador.segment(img);
+            try {
+                const m = res.categoryMask;
+                if (!m) return null;
+                const datos = m.getAsUint8Array();
+                const mw = m.width, mh = m.height;
+                const sx = img.naturalWidth / mw, sy = img.naturalHeight / mh;
+                const fcx = Math.min(mw - 1, Math.max(0, Math.round((rostro.originX + rostro.width / 2) / sx)));
+                const fcy = Math.min(mh - 1, Math.max(0, Math.round((rostro.originY + rostro.height / 2) / sy)));
+                const valPersona = datos[fcy * mw + fcx]; // el valor que tiene el centro del rostro = "persona"
+                const anchoRostroM = rostro.width / sx;
+                const ventana = Math.round(anchoRostroM * 1.4); // límite lateral para no "pegarse" a brazos u otras personas
+                const yIni = Math.max(0, Math.round((rostro.originY - rostro.height * 1.2) / sy));
+                const yFin = Math.min(mh - 1, Math.round((rostro.originY + rostro.height) / sy)); // hasta la barbilla
+                let izq = Infinity, der = -Infinity;
+                for (let y = yIni; y <= yFin; y++) {
+                    if (datos[y * mw + fcx] !== valPersona) continue;
+                    let l = fcx, r = fcx;
+                    while (l - 1 >= 0 && fcx - (l - 1) <= ventana && datos[y * mw + l - 1] === valPersona) l--;
+                    while (r + 1 < mw && (r + 1) - fcx <= ventana && datos[y * mw + r + 1] === valPersona) r++;
+                    if (l < izq) izq = l;
+                    if (r > der) der = r;
+                }
+                if (!isFinite(izq) || !isFinite(der)) return null;
+                const ancho = (der + 1 - izq) * sx;
+                // Sanidad: la cabeza debe medir algo razonable respecto a la caja del rostro
+                if (ancho < rostro.width * 0.9 || ancho > rostro.width * 2.2) return null;
+                return { izq: izq * sx, der: (der + 1) * sx };
+            } finally {
+                if (res && typeof res.close === "function") res.close();
+            }
+        }
+
         // Calcula el cuadro de recorte (en píxeles de la imagen original) para que
-        // la persona quede con la MISMA distancia a ambos lados de la cabeza.
+        // el centro del cuadro coincida EXACTAMENTE con el centro de la cabeza:
+        // misma distancia desde el borde izquierdo y derecho del cuadro hasta la cabeza.
         // ratio = ancho/alto del cuadro (null = libre).
         async function calcularAutoEncuadre(urlImagen, ratio) {
             const img = new Image();
             img.src = urlImagen;
             await img.decode();
-            const { cara, persona } = await obtenerDetectores();
+            const { cara, persona, segmentador } = await obtenerDetectores();
 
             const caras = cara.detect(img).detections.map(d => d.boundingBox);
             const personas = persona.detect(img).detections.map(d => d.boundingBox);
@@ -668,13 +721,27 @@
                 )) || lista[0];
             }
 
-            // Centro de la cabeza (si no hay rostro, usamos el centro del cuerpo)
-            const cx = rostro ? rostro.originX + rostro.width / 2 : cuerpo.originX + cuerpo.width / 2;
+            // --- Límites izquierdo/derecho de la cabeza ---
+            let cabezaIzq, cabezaDer, metodo;
+            let medida = null;
+            if (rostro && segmentador) {
+                try { medida = medirCabeza(segmentador, img, rostro); } catch (e) { console.warn("medirCabeza falló:", e); }
+            }
+            if (medida) {
+                cabezaIzq = medida.izq; cabezaDer = medida.der; metodo = "silueta";
+            } else if (rostro) {
+                cabezaIzq = rostro.originX; cabezaDer = rostro.originX + rostro.width; metodo = "rostro";
+            } else {
+                cabezaIzq = cuerpo.originX + cuerpo.width * 0.3; cabezaDer = cuerpo.originX + cuerpo.width * 0.7; metodo = "cuerpo";
+            }
+            const cx = (cabezaIzq + cabezaDer) / 2; // eje central EXACTO de la cabeza
+
             // Caja de la persona (si no hay cuerpo detectado, la estimamos a partir del rostro)
             const pb = cuerpo
                 ? { x0: cuerpo.originX, y0: cuerpo.originY, x1: cuerpo.originX + cuerpo.width, y1: cuerpo.originY + cuerpo.height }
                 : { x0: cx - rostro.width * 2, y0: rostro.originY - rostro.height * 0.5, x1: cx + rostro.width * 2, y1: rostro.originY + rostro.height * 5 };
             // La cabeza nunca debe quedar fuera por una caja de cuerpo imprecisa
+            pb.x0 = Math.min(pb.x0, cabezaIzq); pb.x1 = Math.max(pb.x1, cabezaDer);
             if (rostro) pb.y0 = Math.min(pb.y0, rostro.originY - rostro.height * 0.3);
 
             const MARGEN = 1.15; // 15% de aire a cada lado
@@ -689,7 +756,7 @@
             }
             // Aire arriba menor que abajo (25% / 75% del espacio sobrante)
             const y = pb.y0 - (h - altoPersona) * 0.25;
-            return { x: cx - w / 2, y: y, width: w, height: h };
+            return { x: cx - w / 2, y: y, width: w, height: h, cx, cabezaIzq, cabezaDer, metodo };
         }
 
         // Tamaños de impresión disponibles, en cm (ancho x alto), usados para
@@ -1790,15 +1857,27 @@
 
                     const sliderTam = el("sliderTamanoRecorte", slot);
                     const valorTam = el("valorTamanoRecorte", slot);
+                    const sliderVert = el("sliderPosVerticalRecorte", slot);
+                    const valorVert = el("valorPosVerticalRecorte", slot);
                     const cajaTam = el("ajusteTamanoRecorte", slot);
                     estado[slot].baseEncuadre = null;
-                    sliderTam.value = 100;
-                    valorTam.innerText = "100%";
                     cajaTam.classList.remove("hidden");
-                    const reiniciarSlider = () => { estado[slot].baseEncuadre = null; sliderTam.value = 100; valorTam.innerText = "100%"; };
-                    // Si el usuario mueve/redimensiona el cuadro a mano, el slider vuelve a 100% sobre el nuevo cuadro
+
+                    const textoVert = () => {
+                        const v = parseInt(sliderVert.value, 10);
+                        return v === 0 ? "Posición original" : (v < 0 ? `Subido ${-v}%` : `Bajado ${v}%`);
+                    };
+                    const reiniciarSlider = () => {
+                        estado[slot].baseEncuadre = null;
+                        sliderTam.value = 100; valorTam.innerText = "100%";
+                        sliderVert.value = 0; valorVert.innerText = textoVert();
+                    };
+                    reiniciarSlider();
+                    // Si el usuario mueve/redimensiona el cuadro a mano, los sliders vuelven a su punto neutro sobre el nuevo cuadro
                     imgFondo.addEventListener("cropend", reiniciarSlider);
-                    sliderTam.oninput = () => {
+
+                    // Aplica tamaño + posición vertical. El centro horizontal (eje X) NUNCA cambia.
+                    const aplicarAjustes = () => {
                         const c = estado[slot].cropperInstance;
                         if (!c) return;
                         if (!estado[slot].baseEncuadre) {
@@ -1807,9 +1886,14 @@
                         }
                         const b = estado[slot].baseEncuadre;
                         const f = sliderTam.value / 100;
+                        const v = sliderVert.value / 100; // fracción de la altura base
+                        const w = b.w * f, h = b.h * f;
                         valorTam.innerText = sliderTam.value + "%";
-                        c.setData({ x: b.cx - b.w * f / 2, y: b.cy - b.h * f / 2, width: b.w * f, height: b.h * f });
+                        valorVert.innerText = textoVert();
+                        c.setData({ x: b.cx - w / 2, y: b.cy + v * b.h - h / 2, width: w, height: h });
                     };
+                    sliderTam.oninput = aplicarAjustes;
+                    sliderVert.oninput = aplicarAjustes;
 
                     const btnAuto = el("btnAutoEncuadre", slot);
                     btnAuto.classList.remove("hidden");
@@ -1823,15 +1907,20 @@
                             let ratio = null;
                             if (par) ratio = estado[slot].recorteHorizontal ? par[1] / par[0] : par[0] / par[1];
                             const r = await calcularAutoEncuadre(estado[slot].urlOriginalImagen, ratio);
-                            // El cropper trabaja sobre la imagen con margen extra: sumamos el desplazamiento
-                            c.setData({
-                                x: r.x + estado[slot].extraX,
-                                y: r.y + estado[slot].extraY,
-                                width: r.width,
-                                height: r.height
-                            });
+                            const ex = estado[slot].extraX, ey = estado[slot].extraY; // el cropper trabaja con margen extra
+                            c.setData({ x: r.x + ex, y: r.y + ey, width: r.width, height: r.height });
+                            // Pasada de corrección: forzar que el centro del cuadro sea exactamente el centro de la cabeza
+                            let d = c.getData();
+                            const xDeseado = r.cx + ex - d.width / 2;
+                            if (Math.abs(d.x - xDeseado) > 0.01) { c.setData({ x: xDeseado }); d = c.getData(); }
                             reiniciarSlider();
-                            guia.innerText = "🎯 Encuadre automático listo: misma distancia a ambos lados de la cabeza. Podés ajustarlo a mano antes de aplicar.";
+                            estado[slot].baseEncuadre = { cx: d.x + d.width / 2, cy: d.y + d.height / 2, w: d.width, h: d.height };
+                            // Verificación: distancia (en px de la imagen original) del borde del cuadro a cada lado de la cabeza
+                            const izqCuadro = d.x - ex;
+                            const distIzq = r.cabezaIzq - izqCuadro;
+                            const distDer = (izqCuadro + d.width) - r.cabezaDer;
+                            const origen = r.metodo === "silueta" ? "silueta de la cabeza" : (r.metodo === "rostro" ? "caja del rostro (sin silueta)" : "caja del cuerpo");
+                            guia.innerText = `🎯 Encuadre listo (medido con ${origen}). Distancia a la cabeza → Izq: ${distIzq.toFixed(1)} px | Der: ${distDer.toFixed(1)} px`;
                         } catch (err) {
                             console.error(err);
                             guia.innerText = "⚠️ No se pudo encuadrar automáticamente: " + (err.message || err);

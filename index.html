@@ -311,6 +311,12 @@
 
                 </div>
 
+                <div class="mb-6 bg-gray-700 p-3 rounded flex items-start gap-2 border border-purple-500">
+                    <input type="checkbox" id="forzarLaMa-__SLOT__" class="w-4 h-4 mt-1 cursor-pointer">
+                    <label for="forzarLaMa-__SLOT__" class="text-xs font-bold text-purple-300 cursor-pointer">🪄 Forzar expansión de cuerpo (hombros/brazos) con IA.<br>
+                    <span class="text-gray-400 font-normal">Márcalo si expandes el recorte y vas a poner un fondo nuevo: la IA inventa el cuerpo que falta antes del recorte.</span></label>
+                </div>
+
 
 
                 <button id="btnEnviar-__SLOT__" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg"
@@ -2413,6 +2419,7 @@
                         fuerza_naranja: parseFloat(el("fuerzaNaranja", slot).value),
 
                         mantener_color_original: el("mantenerColorOriginal", slot).checked,
+                        forzar_lama: el("forzarLaMa", slot).checked,
 
                         fondo_id: el("fondoIA", slot).value,
 

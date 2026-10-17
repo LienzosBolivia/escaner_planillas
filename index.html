@@ -180,6 +180,27 @@
                     <canvas id="lienzoDibujo-__SLOT__" class="absolute top-0 left-0 w-full h-full cursor-crosshair" style="touch-action: none;" oncontextmenu="return false;"></canvas>
 
                 </div>
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+                    <div class="flex items-center gap-2 mb-3">
+                        <input type="checkbox" id="activarRetoquePiel-__SLOT__" class="w-4 h-4 cursor-pointer accent-pink-500">
+                        <label for="activarRetoquePiel-__SLOT__" class="text-sm font-bold text-pink-400 cursor-pointer">🎨 Retoque Manual de Piel (Avanzado)</label>
+                    </div>
+                    <div id="panelRetoquePiel-__SLOT__" class="hidden flex-col gap-4 pl-4 border-l-2 border-pink-500">
+                        <p class="text-[11px] text-gray-400 leading-tight">La vista previa afecta toda la foto como guía, pero el servidor aplicará estos ajustes <b>solo a la piel</b> de la persona.</p>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>❄️ Más Frío</span><span>Temperatura: <span id="valTemp-__SLOT__" class="text-pink-300">0</span></span><span>🔥 Más Cálido</span></div>
+                            <input type="range" id="sliderTemp-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>🧟 Pálido</span><span>Saturación: <span id="valSat-__SLOT__" class="text-pink-300">0</span></span><span>🍓 Vivo</span></div>
+                            <input type="range" id="sliderSat-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>🌑 Oscuro</span><span>Luminosidad: <span id="valLum-__SLOT__" class="text-pink-300">0</span></span><span>☀️ Claro</span></div>
+                            <input type="range" id="sliderLum-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                        </div>
+                    </div>
+                </div>
 
 
 
@@ -291,36 +312,14 @@
 
                     <label class="block text-sm font-bold text-gray-300 mb-2">
 
-                        Corrección Anti-Naranja (piel): <span id="valorFuerzaNaranja-__SLOT__" class="text-orange-400">0.35</span>
+                        Corrección Anti-Naranja (piel): <span id="valorFuerzaNaranja-__SLOT__" class="text-orange-400">0</span>
 
                     </label>
 
-                    <input type="range" id="fuerzaNaranja-__SLOT__" min="0" max="1" step="0.05" value="0.35" class="w-full cursor-pointer">
+                    <input type="range" id="fuerzaNaranja-__SLOT__" min="0" max="1" step="0.05" value="0" class="w-full cursor-pointer">
 
                     <p class="text-xs text-gray-400 mt-1">0 = sin corrección, 1 = corrección máxima.</p>
 
-                </div>
-
-                <div class="mb-6 bg-gray-700 p-3 rounded">
-                    <div class="flex items-center gap-2 mb-3">
-                        <input type="checkbox" id="activarRetoquePiel-__SLOT__" class="w-4 h-4 cursor-pointer accent-pink-500">
-                        <label for="activarRetoquePiel-__SLOT__" class="text-sm font-bold text-pink-400 cursor-pointer">🎨 Retoque Manual de Piel (Avanzado)</label>
-                    </div>
-                    <div id="panelRetoquePiel-__SLOT__" class="hidden flex-col gap-4 pl-4 border-l-2 border-pink-500">
-                        <p class="text-[11px] text-gray-400 leading-tight">La vista previa afecta toda la foto como guía, pero el servidor aplicará estos ajustes <b>solo a la piel</b> de la persona.</p>
-                        <div>
-                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>❄️ Más Frío</span><span>Temperatura: <span id="valTemp-__SLOT__" class="text-pink-300">0</span></span><span>🔥 Más Cálido</span></div>
-                            <input type="range" id="sliderTemp-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
-                        </div>
-                        <div>
-                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>🧟 Pálido</span><span>Saturación: <span id="valSat-__SLOT__" class="text-pink-300">0</span></span><span>🍓 Vivo</span></div>
-                            <input type="range" id="sliderSat-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
-                        </div>
-                        <div>
-                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>🌑 Oscuro</span><span>Luminosidad: <span id="valLum-__SLOT__" class="text-pink-300">0</span></span><span>☀️ Claro</span></div>
-                            <input type="range" id="sliderLum-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
-                        </div>
-                    </div>
                 </div>
 
 

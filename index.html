@@ -79,6 +79,15 @@
 
                 <p class="text-xs text-gray-500 mb-5">Pestaña __SLOT__ · servidor y cola independientes</p>
 
+                <div class="mb-4 bg-gray-700 p-3 rounded border border-blue-500">
+                    <label class="block text-sm font-bold text-blue-300 mb-2">☁️ Método de Subida (imágenes al servidor):</label>
+                    <select id="metodoSubida-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
+                        <option value="drive">📂 Google Drive (Actual - Seguro)</option>
+                        <option value="imgbb">🚀 ImgBB (Alternativo - Más Rápido)</option>
+                    </select>
+                    <p class="text-[11px] text-gray-400 mt-1">Si cargas una imagen del historial, se reutiliza su enlace existente y no se sube de nuevo.</p>
+                </div>
+
 
 
                 <input type="file" id="archivo-__SLOT__" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
@@ -434,6 +443,15 @@
 
         const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0"; // ya no se usa para subir, se deja por si acaso
 
+        async function subirAImgBB(archivoOBlob) {
+            const formData = new FormData();
+            formData.append("image", archivoOBlob);
+            const resp = await fetch("https://api.imgbb.com/1/upload?key=" + API_KEY_IMGBB, { method: "POST", body: formData });
+            const data = await resp.json();
+            if (!data.success) throw new Error("Error en ImgBB: " + ((data.error && data.error.message) || "desconocido"));
+            return { success: true, url: data.data.url, fileId: "" };
+        }
+
 
 
         // 📤 Sube un archivo/blob a Google Drive a través del Apps Script (doPost,
@@ -589,6 +607,10 @@
             estado[s] = {
 
                 historialTareas: JSON.parse(localStorage.getItem(`tareasIA_${s}`)) || [],
+                cargandoDesdeHistorial: false,
+                archivoModificado: true,
+                imagenCargadaUrl: null,
+                imagenCargadaId: null,
 
                 cropperInstance: null,
 
@@ -981,7 +1003,7 @@
 
 
 
-        window.cargarImagenEnLienzo = async function(slot, url) {
+        window.cargarImagenEnLienzo = async function(slot, urlReal, driveId, urlThumbnail) {
 
             const txtEstado = el("estado", slot);
 
@@ -991,7 +1013,7 @@
 
             try {
 
-                const proxyUrl = "https://wsrv.nl/?url=" + encodeURIComponent(url) + "&output=jpg";
+                const proxyUrl = "https://wsrv.nl/?url=" + encodeURIComponent(urlThumbnail || urlReal) + "&output=jpg";
 
                 const response = await fetch(proxyUrl);
 
@@ -1006,6 +1028,10 @@
                 dataTransfer.items.add(file);
 
                 el("archivo", slot).files = dataTransfer.files;
+
+                estado[slot].cargandoDesdeHistorial = true;
+                estado[slot].imagenCargadaUrl = urlReal;
+                estado[slot].imagenCargadaId = driveId || "";
 
                 el("archivo", slot).dispatchEvent(new Event('change'));
 
@@ -1469,7 +1495,7 @@
 
                         <div class="flex gap-2 mt-3">
 
-                            <button onclick="cargarImagenEnLienzo(${slot}, '${urlVisualizacion}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
+                            <button onclick="cargarImagenEnLienzo(${slot}, '${tarea.urlResultado}', '${tarea.driveId || ''}', '${urlVisualizacion}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
 
                             <button onclick="eliminarTarea(${slot}, '${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
 
@@ -1688,6 +1714,15 @@
                 const file = e.target.files[0];
 
                 if (!file) return;
+
+                if (estado[slot].cargandoDesdeHistorial) {
+                    estado[slot].cargandoDesdeHistorial = false;
+                    estado[slot].archivoModificado = false;
+                } else {
+                    estado[slot].archivoModificado = true;
+                    estado[slot].imagenCargadaUrl = null;
+                    estado[slot].imagenCargadaId = null;
+                }
 
 
 
@@ -2264,13 +2299,22 @@
 
                 txtEstado.classList.remove("hidden");
 
-                txtEstado.innerText = "Subiendo imagen a la nube...";
+                txtEstado.innerText = "Preparando transferencia...";
 
 
 
                 try {
 
-                    const dataOrig = await subirADrive(archivo, slot, archivo.name);
+                    const metodoSubida = el("metodoSubida", slot).value;
+                    const subir = (b, nombre) => metodoSubida === "imgbb" ? subirAImgBB(b) : subirADrive(b, slot, nombre);
+                    let dataOrig = { url: "", fileId: "" };
+                    if (!estado[slot].archivoModificado && estado[slot].imagenCargadaUrl) {
+                        txtEstado.innerText = "♻️ Reutilizando enlace de imagen ya subida...";
+                        dataOrig = { url: estado[slot].imagenCargadaUrl, fileId: estado[slot].imagenCargadaId || "" };
+                    } else {
+                        txtEstado.innerText = metodoSubida === "imgbb" ? "🚀 Subiendo imagen a ImgBB..." : "☁️ Subiendo imagen a Drive...";
+                        dataOrig = await subir(archivo, archivo.name);
+                    }
 
                     let urlOriginal = dataOrig.url;
 
@@ -2290,7 +2334,7 @@
 
                         const blobMascara = await obtenerMascaraBlob();
 
-                        const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
+                        const dataMascara = await subir(blobMascara, "mascara.png");
 
                         urlMascara = dataMascara.url;
 
@@ -2314,7 +2358,7 @@
 
                             txtEstado.innerText = "Subiendo foto de referencia del rostro...";
 
-                            const dataRostro = await subirADrive(archivoRostro, slot, archivoRostro.name);
+                            const dataRostro = await subir(archivoRostro, archivoRostro.name);
 
                             urlRostroReferencia = dataRostro.url;
 
@@ -2332,7 +2376,7 @@
 
                             const blobMascara = await obtenerMascaraBlob();
 
-                            const dataMascara = await subirADrive(blobMascara, slot, "mascara.png");
+                            const dataMascara = await subir(blobMascara, "mascara.png");
 
                             urlMascara = dataMascara.url;
 

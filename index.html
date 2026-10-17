@@ -203,7 +203,7 @@
 
                     <option value="solo_encuadre">🎯 Solo Encuadre Automático</option>
 
-                    <option value="recorte_manual">📐 Recorte Manual Expansivo</option>
+                    <option value="recorte_manual" selected>📐 Recorte Manual Expansivo</option>
 
                     <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
 
@@ -299,6 +299,28 @@
 
                     <p class="text-xs text-gray-400 mt-1">0 = sin corrección, 1 = corrección máxima.</p>
 
+                </div>
+
+                <div class="mb-6 bg-gray-700 p-3 rounded">
+                    <div class="flex items-center gap-2 mb-3">
+                        <input type="checkbox" id="activarRetoquePiel-__SLOT__" class="w-4 h-4 cursor-pointer accent-pink-500">
+                        <label for="activarRetoquePiel-__SLOT__" class="text-sm font-bold text-pink-400 cursor-pointer">🎨 Retoque Manual de Piel (Avanzado)</label>
+                    </div>
+                    <div id="panelRetoquePiel-__SLOT__" class="hidden flex-col gap-4 pl-4 border-l-2 border-pink-500">
+                        <p class="text-[11px] text-gray-400 leading-tight">La vista previa afecta toda la foto como guía, pero el servidor aplicará estos ajustes <b>solo a la piel</b> de la persona.</p>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>❄️ Más Frío</span><span>Temperatura: <span id="valTemp-__SLOT__" class="text-pink-300">0</span></span><span>🔥 Más Cálido</span></div>
+                            <input type="range" id="sliderTemp-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>🧟 Pálido</span><span>Saturación: <span id="valSat-__SLOT__" class="text-pink-300">0</span></span><span>🍓 Vivo</span></div>
+                            <input type="range" id="sliderSat-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>🌑 Oscuro</span><span>Luminosidad: <span id="valLum-__SLOT__" class="text-pink-300">0</span></span><span>☀️ Claro</span></div>
+                            <input type="range" id="sliderLum-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                        </div>
+                    </div>
                 </div>
 
 
@@ -1645,6 +1667,30 @@
 
 
 
+            // -------- Retoque manual de piel: vista previa en vivo --------
+            const chkRetoque = el("activarRetoquePiel", slot);
+            const panelRetoque = el("panelRetoquePiel", slot);
+            const sTemp = el("sliderTemp", slot), sSat = el("sliderSat", slot), sLum = el("sliderLum", slot);
+            function actualizarVistaPreviaColor() {
+                const img = el("imgFondo", slot);
+                if (!chkRetoque.checked) {
+                    panelRetoque.classList.add("hidden");
+                    panelRetoque.classList.remove("flex");
+                    img.style.filter = "none";
+                    return;
+                }
+                panelRetoque.classList.remove("hidden");
+                panelRetoque.classList.add("flex");
+                el("valTemp", slot).innerText = sTemp.value;
+                el("valSat", slot).innerText = sSat.value;
+                el("valLum", slot).innerText = sLum.value;
+                const sat = 100 + parseInt(sSat.value), lum = 100 + parseInt(sLum.value), temp = parseInt(sTemp.value);
+                let filter = `saturate(${sat}%) brightness(${lum}%)`;
+                if (temp > 0) filter += ` sepia(${temp}%) hue-rotate(-${temp / 2}deg)`;
+                if (temp < 0) filter += ` hue-rotate(${Math.abs(temp)}deg)`;
+                img.style.filter = filter;
+            }
+            [chkRetoque, sTemp, sSat, sLum].forEach(c => c.addEventListener(c === chkRetoque ? "change" : "input", actualizarVistaPreviaColor));
             el("fuerzaNaranja", slot).addEventListener("input", function() {
 
                 el("valorFuerzaNaranja", slot).innerText = this.value;
@@ -2420,6 +2466,10 @@
 
                         mantener_color_original: el("mantenerColorOriginal", slot).checked,
                         forzar_lama: el("forzarLaMa", slot).checked,
+                        retoque_activo: el("activarRetoquePiel", slot).checked,
+                        retoque_temp: parseInt(el("sliderTemp", slot).value),
+                        retoque_sat: parseInt(el("sliderSat", slot).value),
+                        retoque_lum: parseInt(el("sliderLum", slot).value),
 
                         fondo_id: el("fondoIA", slot).value,
 

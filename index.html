@@ -56,6 +56,75 @@
 
 
     <div id="panelesContenedor" class="w-full max-w-5xl"></div>
+    <div id="panel-fondos" class="w-full max-w-5xl hidden">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl">
+                <h2 class="text-2xl font-bold mb-1 text-teal-400">🎨 Estudio de Creación de Fondos</h2>
+                <p class="text-xs text-gray-400 mb-5">Diseña un fondo con aro de luz de estudio o sube uno propio. Se usará cuando marques la casilla en cualquier pestaña.</p>
+
+                <label class="block text-sm font-bold text-gray-300 mb-1">Estilo de halo / iluminación:</label>
+                <select id="estiloFondoCustom" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
+                    <option value="halo_clasico">⭕ Halo de Estudio Clásico (centro claro → borde oscuro)</option>
+                    <option value="halo_retrato">👤 Halo Retrato Alto (luz a la altura del rostro)</option>
+                    <option value="halo_suave">☁️ Degradado Suave (transición amplia)</option>
+                    <option value="vineta_profunda">🌑 Viñeta Dramática Profunda</option>
+                    <option value="luz_diamante">💎 Halo Diamante Difuso</option>
+                    <option value="imagen_subida">📁 Usar imagen propia subida</option>
+                </select>
+
+                <div id="controlesGeneradorFondo">
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div class="bg-gray-700 p-3 rounded">
+                            <label class="block text-xs font-bold text-gray-300 mb-1">🎯 Color base:</label>
+                            <input type="color" id="colorBaseFondo" value="#3b5998" class="w-full h-10 rounded cursor-pointer bg-transparent">
+                        </div>
+                        <div class="bg-gray-700 p-3 rounded flex flex-col justify-center">
+                            <label class="flex items-center gap-2 text-xs font-bold text-gray-300 cursor-pointer mb-2">
+                                <input type="checkbox" id="autoColorCentro" checked class="w-4 h-4 accent-teal-500">
+                                Centro/borde automático
+                            </label>
+                            <div id="selectorManualExtremos" class="hidden flex gap-2">
+                                <input type="color" id="colorCentroManual" value="#7ca1eb" title="Color centro" class="w-1/2 h-7 rounded cursor-pointer">
+                                <input type="color" id="colorBordeManual" value="#192847" title="Color borde" class="w-1/2 h-7 rounded cursor-pointer">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-4 bg-gray-700 p-3 rounded">
+                        <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>Luz de centro (claridad):</span><span id="valLuzCentro" class="text-teal-300">45%</span></div>
+                        <input type="range" id="sliderLuzCentro" min="0" max="90" value="45" class="w-full cursor-pointer">
+                    </div>
+                    <div class="mb-4 bg-gray-700 p-3 rounded">
+                        <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>Oscuridad del aro exterior:</span><span id="valOscuridadBorde" class="text-teal-300">55%</span></div>
+                        <input type="range" id="sliderOscuridadBorde" min="0" max="90" value="55" class="w-full cursor-pointer">
+                    </div>
+                    <div class="mb-4 bg-gray-700 p-3 rounded">
+                        <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>Tamaño del aro de luz:</span><span id="valRadioHalo" class="text-teal-300">65%</span></div>
+                        <input type="range" id="sliderRadioHalo" min="20" max="100" value="65" class="w-full cursor-pointer">
+                    </div>
+                    <div class="mb-4 bg-gray-700 p-3 rounded">
+                        <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>Textura / grano suave:</span><span id="valTexturaFondo" class="text-teal-300">12%</span></div>
+                        <input type="range" id="sliderTexturaFondo" min="0" max="40" value="12" class="w-full cursor-pointer">
+                    </div>
+                </div>
+
+                <div class="mb-5 bg-gray-700 p-3 rounded border border-gray-600">
+                    <label class="block text-xs font-bold text-teal-300 mb-1">📤 ¿Prefieres subir tu propio fondo?</label>
+                    <input type="file" id="archivoFondoPropio" accept="image/*" class="w-full text-xs p-2 bg-gray-600 rounded cursor-pointer">
+                </div>
+
+                <button type="button" id="btnExportarFondo" class="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold py-3 rounded shadow-lg transition">
+                    💾 Descargar este fondo (alta resolución)
+                </button>
+            </div>
+
+            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col items-center justify-center">
+                <h3 class="text-sm font-bold text-gray-300 mb-3">👁️ Vista previa en vivo (fondo activo para las pestañas)</h3>
+                <canvas id="canvasFondoCustom" width="1200" height="1600" class="w-full max-w-sm rounded-lg shadow-2xl border-2 border-teal-500"></canvas>
+                <p id="estadoFondoCustom" class="text-xs text-teal-400 font-bold mt-3">✅ Este fondo está listo para usarse.</p>
+            </div>
+        </div>
+    </div>
 
 
 
@@ -199,6 +268,17 @@
                             <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>🌑 Oscuro</span><span>Luminosidad: <span id="valLum-__SLOT__" class="text-pink-300">0</span></span><span>☀️ Claro</span></div>
                             <input type="range" id="sliderLum-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
                         </div>
+                        <div class="pt-2 border-t border-gray-600 flex flex-col gap-2">
+                            <button type="button" id="btnAplicarColorLocal-__SLOT__" class="w-full bg-pink-600 hover:bg-pink-500 text-white text-xs py-2.5 rounded font-bold shadow transition">
+                                ✨ Aplicar este color al instante (imagen + malla) sin servidor
+                            </button>
+                            <button type="button" id="btnDescargarLienzoColor-__SLOT__" class="w-full bg-gray-600 hover:bg-gray-500 text-white text-xs py-2 rounded font-bold shadow transition">
+                                💾 Descargar imagen actual con este color
+                            </button>
+                            <p class="text-[10px] text-gray-400 leading-tight">
+                                Aplica el ajuste a TODA la foto en tu navegador. Si cargaste un trabajo del historial (⬇️), también actualiza al instante la foto limpia y la foto con malla de esa tarjeta (hasta que recargues la página).
+                            </p>
+                        </div>
                     </div>
                 </div>
 
@@ -289,6 +369,12 @@
                     <label class="block text-sm font-bold text-gray-300 mb-2">Fondo Nº (0 = Transparente):</label>
 
                     <input type="number" id="fondoIA-__SLOT__" min="0" max="25" value="0" class="w-full p-2 bg-gray-600 rounded text-white font-bold text-center">
+                    <div class="mt-2 flex items-start gap-2 bg-gray-800 p-2 rounded border border-teal-500">
+                        <input type="checkbox" id="usarFondoCustom-__SLOT__" class="w-4 h-4 mt-0.5 cursor-pointer accent-teal-500">
+                        <label for="usarFondoCustom-__SLOT__" class="text-xs font-bold text-teal-300 cursor-pointer">
+                            🎨 Usar el fondo diseñado/subido en la pestaña "🎨 Crear Fondo" (ignora el número de arriba)
+                        </label>
+                    </div>
 
                 </div>
 
@@ -334,8 +420,8 @@
 
                 <div class="mb-6 bg-gray-700 p-3 rounded flex items-start gap-2 border border-purple-500">
                     <input type="checkbox" id="forzarLaMa-__SLOT__" class="w-4 h-4 mt-1 cursor-pointer">
-                    <label for="forzarLaMa-__SLOT__" class="text-xs font-bold text-purple-300 cursor-pointer">🪄 Forzar expansión de cuerpo (hombros/brazos) con IA.<br>
-                    <span class="text-gray-400 font-normal">Márcalo si expandes el recorte y vas a poner un fondo nuevo: la IA inventa el cuerpo que falta antes del recorte.</span></label>
+                    <label for="forzarLaMa-__SLOT__" class="text-xs font-bold text-purple-300 cursor-pointer">🪄 Forzar expansión de cuerpo (hombros/brazos).<br>
+                    <span class="text-gray-400 font-normal">Márcalo si expandes el recorte y vas a poner un fondo nuevo: el sistema extiende hombros y torso con geometría antes del recorte.</span></label>
                 </div>
 
 
@@ -637,7 +723,7 @@
                 cargandoDesdeHistorial: false,
                 archivoModificado: true,
                 imagenCargadaUrl: null,
-                imagenCargadaId: null,
+                imagenCargadaId: null, tareaActivaId: null, coloresLocales: {},
 
                 cropperInstance: null,
 
@@ -878,7 +964,14 @@
 
 
 
-        window.cambiarPestaña = function(slot) {
+        const btnTabFondos = document.createElement("button");
+        btnTabFondos.id = "tab-fondos";
+        btnTabFondos.className = "flex-1 min-w-[130px] py-2 px-3 rounded-lg text-sm font-bold transition-colors bg-teal-900 text-teal-200 hover:bg-teal-800";
+        btnTabFondos.textContent = "🎨 Crear Fondo";
+        btnTabFondos.addEventListener("click", () => cambiarPestaña("fondos"));
+        barraPestañas.appendChild(btnTabFondos);
+
+        const _cambiarPestañaSlots = function(slot) {
 
             SLOTS.forEach(s => {
 
@@ -892,6 +985,17 @@
 
             });
 
+        };
+
+        window.cambiarPestaña = function(slot) {
+            _cambiarPestañaSlots(slot);
+            const panelFondos = document.getElementById("panel-fondos");
+            const tabFondos = document.getElementById("tab-fondos");
+            if (panelFondos && tabFondos) {
+                panelFondos.classList.toggle("hidden", slot !== "fondos");
+                tabFondos.className = "flex-1 min-w-[130px] py-2 px-3 rounded-lg text-sm font-bold transition-colors " +
+                    (slot === "fondos" ? "bg-teal-500 text-white" : "bg-teal-900 text-teal-200 hover:bg-teal-800");
+            }
         };
 
 
@@ -1030,7 +1134,7 @@
 
 
 
-        window.cargarImagenEnLienzo = async function(slot, urlReal, driveId, urlThumbnail) {
+        window.cargarImagenEnLienzo = async function(slot, urlReal, driveId, urlThumbnail, tareaId = null) {
 
             const txtEstado = el("estado", slot);
 
@@ -1040,7 +1144,8 @@
 
             try {
 
-                const proxyUrl = "https://wsrv.nl/?url=" + encodeURIComponent(urlThumbnail || urlReal) + "&output=jpg";
+                const ov = (tareaId && estado[slot].coloresLocales[tareaId]) ? estado[slot].coloresLocales[tareaId].limpia : null;
+                const proxyUrl = ov || ("https://wsrv.nl/?url=" + encodeURIComponent(urlThumbnail || urlReal) + "&output=jpg");
 
                 const response = await fetch(proxyUrl);
 
@@ -1056,11 +1161,12 @@
 
                 el("archivo", slot).files = dataTransfer.files;
 
-                estado[slot].cargandoDesdeHistorial = true;
-                estado[slot].imagenCargadaUrl = urlReal;
-                estado[slot].imagenCargadaId = driveId || "";
+                estado[slot].cargandoDesdeHistorial = !ov; // con color local la imagen no está en la nube: se sube como nueva
+                estado[slot].imagenCargadaUrl = ov ? null : urlReal;
+                estado[slot].imagenCargadaId = ov ? null : (driveId || "");
 
                 el("archivo", slot).dispatchEvent(new Event('change'));
+                estado[slot].tareaActivaId = tareaId;
 
                 window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -1458,6 +1564,13 @@
 
         // ==========================================
 
+        function urlMiniatura(u) {
+            if (!u) return "";
+            if (u.startsWith("data:")) return u;
+            const m = u.match(/[?&]id=([^&]+)/);
+            return m ? `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000` : u;
+        }
+
         function renderizarHistorial(slot) {
 
             const contenedor = el("contenedorHistorial", slot);
@@ -1478,51 +1591,34 @@
 
                     if (tarea.urlResultado) {
 
-                        let imgId = tarea.urlResultado.split('id=')[1];
-
-                        let urlVisualizacion = `https://drive.google.com/thumbnail?id=${imgId}&sz=w1000`;
-
-
-
+                        const ov = (estado[slot].coloresLocales || {})[tarea.id] || {};
+                        let urlVisualizacion = urlMiniatura(tarea.urlResultado);
+                        const srcLimpia = ov.limpia || urlVisualizacion;
+                        const hrefLimpia = ov.limpia || tarea.urlResultado;
+                        const attrDescarga = ov.limpia ? `download="color_${tarea.id.slice(0,6)}.jpg"` : 'target="_blank"';
                         if (tarea.urlResultadoMalla) {
-
-                            let imgIdMalla = tarea.urlResultadoMalla.split('id=')[1];
-
-                            let urlVisualizacionMalla = `https://drive.google.com/thumbnail?id=${imgIdMalla}&sz=w1000`;
-
+                            const srcMalla = ov.malla || urlMiniatura(tarea.urlResultadoMalla);
+                            const hrefMalla = ov.malla || tarea.urlResultadoMalla;
+                            const attrDescargaM = ov.malla ? `download="color_malla_${tarea.id.slice(0,6)}.jpg"` : 'target="_blank"';
                             htmlImg = `
-
                             <div class="grid grid-cols-2 gap-2 mt-2">
-
-                                <a href="${tarea.urlResultado}" target="_blank">
-
-                                    <div class="text-[10px] text-center text-gray-400 mb-1">Corte Original</div>
-
-                                    <img src="${urlVisualizacion}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
-
+                                <a href="${hrefLimpia}" ${attrDescarga}>
+                                    <div class="text-[10px] text-center text-gray-400 mb-1">Corte Original${ov.limpia ? ' 🎨' : ''}</div>
+                                    <img src="${srcLimpia}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
                                 </a>
-
-                                <a href="${tarea.urlResultadoMalla}" target="_blank">
-
-                                    <div class="text-[10px] text-center text-gray-400 mb-1">Con Malla</div>
-
-                                    <img src="${urlVisualizacionMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
-
+                                <a href="${hrefMalla}" ${attrDescargaM}>
+                                    <div class="text-[10px] text-center text-gray-400 mb-1">Con Malla${ov.malla ? ' 🎨' : ''}</div>
+                                    <img src="${srcMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
                                 </a>
-
                             </div>`;
-
                         } else {
-
-                            htmlImg = `<a href="${tarea.urlResultado}" target="_blank"><img src="${urlVisualizacion}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
-
+                            htmlImg = `<a href="${hrefLimpia}" ${attrDescarga}><img src="${srcLimpia}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
                         }
-
                         botonesAccion = `
 
                         <div class="flex gap-2 mt-3">
 
-                            <button onclick="cargarImagenEnLienzo(${slot}, '${tarea.urlResultado}', '${tarea.driveId || ''}', '${urlVisualizacion}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
+                            <button onclick="cargarImagenEnLienzo(${slot}, '${tarea.urlResultado}', '${tarea.driveId || ''}', '${urlVisualizacion}', '${tarea.id}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
 
                             <button onclick="eliminarTarea(${slot}, '${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
 
@@ -1650,6 +1746,237 @@
 
         // ==========================================
 
+        // ==========================================================
+        // ESTUDIO DE FONDOS (halo radial + textura + exportación)
+        // ==========================================================
+        let imagenFondoSubida = null;
+        let renderFondoPendiente = false;
+
+        function ajustarBrilloHex(hex, porcentaje) {
+            const num = parseInt(hex.replace("#", ""), 16);
+            const d = Math.round(2.55 * porcentaje);
+            const r = Math.min(255, Math.max(0, ((num >> 16) & 0xff) + d));
+            const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + d));
+            const b = Math.min(255, Math.max(0, (num & 0xff) + d));
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function programarRenderFondo() {
+            if (renderFondoPendiente) return;
+            renderFondoPendiente = true;
+            requestAnimationFrame(() => { renderFondoPendiente = false; renderizarFondoCustom(); });
+        }
+
+        function renderizarFondoCustom() {
+            const canvas = document.getElementById("canvasFondoCustom");
+            if (!canvas) return;
+            const ctx = canvas.getContext("2d");
+            const W = canvas.width, H = canvas.height;
+            const estilo = document.getElementById("estiloFondoCustom").value;
+
+            if (estilo === "imagen_subida" && imagenFondoSubida) {
+                // "cover": llena el lienzo sin deformar la imagen
+                const iw = imagenFondoSubida.naturalWidth, ih = imagenFondoSubida.naturalHeight;
+                const esc = Math.max(W / iw, H / ih);
+                const dw = iw * esc, dh = ih * esc;
+                ctx.drawImage(imagenFondoSubida, (W - dw) / 2, (H - dh) / 2, dw, dh);
+                return;
+            }
+
+            const hexBase = document.getElementById("colorBaseFondo").value;
+            const auto = document.getElementById("autoColorCentro").checked;
+            const luz = parseInt(document.getElementById("sliderLuzCentro").value, 10);
+            const osc = parseInt(document.getElementById("sliderOscuridadBorde").value, 10);
+            const radioPct = parseInt(document.getElementById("sliderRadioHalo").value, 10) / 100;
+            const granoPct = parseInt(document.getElementById("sliderTexturaFondo").value, 10);
+
+            document.getElementById("valLuzCentro").innerText = `${luz}%`;
+            document.getElementById("valOscuridadBorde").innerText = `${osc}%`;
+            document.getElementById("valRadioHalo").innerText = `${Math.round(radioPct * 100)}%`;
+            document.getElementById("valTexturaFondo").innerText = `${granoPct}%`;
+            document.getElementById("selectorManualExtremos").classList.toggle("hidden", auto);
+            document.getElementById("selectorManualExtremos").classList.toggle("flex", !auto);
+
+            const colCentro = auto ? ajustarBrilloHex(hexBase, luz) : document.getElementById("colorCentroManual").value;
+            const colMedio = hexBase;
+            const colBorde = auto ? ajustarBrilloHex(hexBase, -osc) : document.getElementById("colorBordeManual").value;
+
+            const cy = estilo === "halo_retrato" ? H * 0.36 : H * 0.48;
+            const cx = W * 0.5;
+            const maxR = Math.hypot(W, H) * 0.65 * radioPct;
+
+            const grad = ctx.createRadialGradient(cx, cy, W * 0.04, cx, cy, maxR);
+            if (estilo === "vineta_profunda") {
+                grad.addColorStop(0, colCentro);
+                grad.addColorStop(0.45, colMedio);
+                grad.addColorStop(1, ajustarBrilloHex(hexBase, -Math.min(95, osc + 25)));
+            } else if (estilo === "halo_suave") {
+                grad.addColorStop(0, colCentro);
+                grad.addColorStop(0.75, colMedio);
+                grad.addColorStop(1, colBorde);
+            } else if (estilo === "luz_diamante") {
+                grad.addColorStop(0, colCentro);
+                grad.addColorStop(0.35, colCentro);
+                grad.addColorStop(0.7, colMedio);
+                grad.addColorStop(1, colBorde);
+            } else {
+                grad.addColorStop(0, colCentro);
+                grad.addColorStop(0.55, colMedio);
+                grad.addColorStop(1, colBorde);
+            }
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, H);
+
+            const gradAro = ctx.createRadialGradient(cx, cy, maxR * 0.5, cx, cy, Math.hypot(W, H) * 0.6);
+            gradAro.addColorStop(0, "rgba(0,0,0,0)");
+            gradAro.addColorStop(1, `rgba(0,0,0,${(osc / 180).toFixed(2)})`);
+            ctx.fillStyle = gradAro;
+            ctx.fillRect(0, 0, W, H);
+
+            if (granoPct > 0) {
+                const imgData = ctx.getImageData(0, 0, W, H);
+                const d = imgData.data;
+                const amp = granoPct * 0.6;
+                for (let i = 0; i < d.length; i += 4) {
+                    const ruido = (Math.random() - 0.5) * amp;
+                    d[i] = Math.min(255, Math.max(0, d[i] + ruido));
+                    d[i + 1] = Math.min(255, Math.max(0, d[i + 1] + ruido));
+                    d[i + 2] = Math.min(255, Math.max(0, d[i + 2] + ruido));
+                }
+                ctx.putImageData(imgData, 0, 0);
+            }
+        }
+
+        function obtenerBlobFondoCustom() {
+            return new Promise((resolve, reject) => {
+                const canvas = document.getElementById("canvasFondoCustom");
+                canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("No se pudo exportar el fondo")), "image/jpeg", 0.95);
+            });
+        }
+
+        ["estiloFondoCustom", "colorBaseFondo", "autoColorCentro", "colorCentroManual", "colorBordeManual",
+         "sliderLuzCentro", "sliderOscuridadBorde", "sliderRadioHalo", "sliderTexturaFondo"].forEach(id => {
+            const elem = document.getElementById(id);
+            if (elem) { elem.addEventListener("input", programarRenderFondo); elem.addEventListener("change", programarRenderFondo); }
+        });
+
+        document.getElementById("archivoFondoPropio")?.addEventListener("change", (e) => {
+            const f = e.target.files[0];
+            if (!f) return;
+            const img = new Image();
+            img.onload = () => {
+                imagenFondoSubida = img;
+                document.getElementById("estiloFondoCustom").value = "imagen_subida";
+                renderizarFondoCustom();
+            };
+            img.src = URL.createObjectURL(f);
+        });
+
+        document.getElementById("btnExportarFondo")?.addEventListener("click", () => {
+            const canvas = document.getElementById("canvasFondoCustom");
+            const link = document.createElement("a");
+            link.download = `fondo_estudio_${Date.now()}.jpg`;
+            link.href = canvas.toDataURL("image/jpeg", 0.98);
+            link.click();
+        });
+
+        renderizarFondoCustom();
+
+        // ==========================================================
+        // MOTOR DE COLOR EN EL NAVEGADOR (sin servidor)
+        // Usa ctx.filter si el navegador lo soporta; si no (p. ej. Safari/iOS), aplica las mismas matrices por píxel.
+        // ==========================================================
+        function leerParamsColor(slot) {
+            return {
+                temp: parseInt(el("sliderTemp", slot).value || 0, 10),
+                sat: parseInt(el("sliderSat", slot).value || 0, 10),
+                lum: parseInt(el("sliderLum", slot).value || 0, 10)
+            };
+        }
+
+        function filtroCSSDesdeParams(p) {
+            let f = `saturate(${100 + p.sat}%) brightness(${100 + p.lum}%)`;
+            if (p.temp > 0) f += ` sepia(${p.temp}%) hue-rotate(-${p.temp / 2}deg)`;
+            if (p.temp < 0) f += ` hue-rotate(${Math.abs(p.temp)}deg)`;
+            return f;
+        }
+
+        let _soportaFiltroCanvas = null;
+        function soportaFiltroCanvas() {
+            if (_soportaFiltroCanvas !== null) return _soportaFiltroCanvas;
+            try {
+                const c = document.createElement("canvas"); c.width = c.height = 1;
+                const x = c.getContext("2d");
+                if (!("filter" in x)) return (_soportaFiltroCanvas = false);
+                x.filter = "grayscale(100%)";
+                x.fillStyle = "rgb(255,0,0)";
+                x.fillRect(0, 0, 1, 1);
+                const d = x.getImageData(0, 0, 1, 1).data;
+                _soportaFiltroCanvas = Math.abs(d[0] - d[1]) < 8;   // si quedó gris, el filtro funciona
+            } catch (e) { _soportaFiltroCanvas = false; }
+            return _soportaFiltroCanvas;
+        }
+
+        function _mulMat(A, B) {
+            const R = [];
+            for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++)
+                R[i * 3 + j] = A[i * 3] * B[j] + A[i * 3 + 1] * B[3 + j] + A[i * 3 + 2] * B[6 + j];
+            return R;
+        }
+
+        function matrizColorDesdeParams(p) {
+            const s = (100 + p.sat) / 100, b = (100 + p.lum) / 100;
+            const a = Math.min(1, Math.max(0, Math.max(0, p.temp) / 100));
+            const deg = p.temp > 0 ? -p.temp / 2 : (p.temp < 0 ? Math.abs(p.temp) : 0);
+            const th = deg * Math.PI / 180, c = Math.cos(th), n = Math.sin(th);
+            const SAT = [0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s,
+                         0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s,
+                         0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s];
+            const BRI = [b, 0, 0, 0, b, 0, 0, 0, b];
+            const k = 1 - a;
+            const SEP = [0.393 + 0.607 * k, 0.769 - 0.769 * k, 0.189 - 0.189 * k,
+                         0.349 - 0.349 * k, 0.686 + 0.314 * k, 0.168 - 0.168 * k,
+                         0.272 - 0.272 * k, 0.534 - 0.534 * k, 0.131 + 0.869 * k];
+            const HUE = [0.213 + c * 0.787 - n * 0.213, 0.715 - c * 0.715 - n * 0.715, 0.072 - c * 0.072 + n * 0.928,
+                         0.213 - c * 0.213 + n * 0.143, 0.715 + c * 0.285 + n * 0.140, 0.072 - c * 0.072 - n * 0.283,
+                         0.213 - c * 0.213 - n * 0.787, 0.715 - c * 0.715 + n * 0.715, 0.072 + c * 0.928 + n * 0.072];
+            return _mulMat(HUE, _mulMat(SEP, _mulMat(BRI, SAT)));
+        }
+
+        async function cargarImagenParaCanvas(url) {
+            const src = (url.startsWith("data:") || url.startsWith("blob:"))
+                ? url
+                : "https://wsrv.nl/?url=" + encodeURIComponent(url) + "&output=jpg";
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.src = src;
+            await img.decode();
+            return img;
+        }
+
+        async function aplicarColorAUrl(urlImagen, params) {
+            const img = await cargarImagenParaCanvas(urlImagen);
+            const c = document.createElement("canvas");
+            c.width = img.naturalWidth; c.height = img.naturalHeight;
+            const ctx = c.getContext("2d");
+            if (soportaFiltroCanvas()) {
+                ctx.filter = filtroCSSDesdeParams(params);
+                ctx.drawImage(img, 0, 0);
+            } else {
+                ctx.drawImage(img, 0, 0);
+                const id = ctx.getImageData(0, 0, c.width, c.height);
+                const d = id.data, m = matrizColorDesdeParams(params);
+                for (let i = 0; i < d.length; i += 4) {
+                    const r = d[i], g = d[i + 1], bl = d[i + 2];
+                    d[i]     = Math.min(255, Math.max(0, m[0] * r + m[1] * g + m[2] * bl));
+                    d[i + 1] = Math.min(255, Math.max(0, m[3] * r + m[4] * g + m[5] * bl));
+                    d[i + 2] = Math.min(255, Math.max(0, m[6] * r + m[7] * g + m[8] * bl));
+                }
+                ctx.putImageData(id, 0, 0);
+            }
+            return c.toDataURL("image/jpeg", 0.96);
+        }
+
         function inicializarPanel(slot) {
 
             renderizarHistorial(slot);
@@ -1690,6 +2017,68 @@
                 img.style.filter = filter;
             }
             [chkRetoque, sTemp, sSat, sLum].forEach(c => c.addEventListener(c === chkRetoque ? "change" : "input", actualizarVistaPreviaColor));
+
+            // -------- Color local (sin servidor): descargar / aplicar a imagen + malla --------
+            el("btnDescargarLienzoColor", slot).addEventListener("click", async () => {
+                if (!estado[slot].urlOriginalImagen) return alert("Primero carga una imagen en el panel.");
+                try {
+                    const dataUrl = await aplicarColorAUrl(estado[slot].urlOriginalImagen, leerParamsColor(slot));
+                    const a = document.createElement("a");
+                    a.download = `editada_color_${Date.now()}.jpg`;
+                    a.href = dataUrl;
+                    a.click();
+                } catch (e) { alert("No se pudo generar la imagen: " + e.message); }
+            });
+
+            el("btnAplicarColorLocal", slot).addEventListener("click", async () => {
+                if (!estado[slot].urlOriginalImagen) return alert("Primero carga una imagen en el panel.");
+                const params = leerParamsColor(slot);
+                if (params.temp === 0 && params.sat === 0 && params.lum === 0) return alert("Mueve alguna barra antes de aplicar.");
+                const btn = el("btnAplicarColorLocal", slot);
+                const textoOriginal = btn.innerText;
+                btn.disabled = true;
+                btn.innerText = "⏳ Aplicando color...";
+                try {
+                    // 1) Imagen del panel: el color queda dentro del archivo que se enviará al servidor
+                    const nuevaBase = await aplicarColorAUrl(estado[slot].urlOriginalImagen, params);
+                    const blob = await (await fetch(nuevaBase)).blob();
+                    const dt = new DataTransfer();
+                    dt.items.add(new File([blob], "imagen_color.jpg", { type: "image/jpeg" }));
+                    el("archivo", slot).files = dt.files;
+                    estado[slot].archivoModificado = true;
+                    estado[slot].cargandoDesdeHistorial = false;
+                    estado[slot].imagenCargadaUrl = null;
+                    estado[slot].imagenCargadaId = null;
+                    estado[slot].urlOriginalImagen = nuevaBase;
+                    const imgF = el("imgFondo", slot);
+                    imgF.style.filter = "none";
+                    if (estado[slot].cropperInstance) estado[slot].cropperInstance.replace(nuevaBase);
+                    else imgF.src = nuevaBase;
+
+                    // 2) Tarjeta del historial de la que viene la foto: versión limpia + versión con malla
+                    const idTarea = estado[slot].tareaActivaId;
+                    const t = idTarea ? estado[slot].historialTareas.find(x => x.id === idTarea) : null;
+                    if (t) {
+                        const previo = estado[slot].coloresLocales[idTarea] || {};
+                        const nuevo = { ...previo };
+                        nuevo.limpia = await aplicarColorAUrl(previo.limpia || t.urlResultado, params);
+                        if (t.urlResultadoMalla) nuevo.malla = await aplicarColorAUrl(previo.malla || t.urlResultadoMalla, params);
+                        estado[slot].coloresLocales[idTarea] = nuevo;
+                        renderizarHistorial(slot);
+                    }
+
+                    // 3) El color ya está horneado: barras a 0
+                    sTemp.value = 0; sSat.value = 0; sLum.value = 0;
+                    actualizarVistaPreviaColor();
+                    alert(t ? "✅ Color aplicado a la imagen del panel y a la tarjeta del historial (limpia y con malla)."
+                            : "✅ Color aplicado a la imagen del panel. Se enviará con este color al servidor.");
+                } catch (e) {
+                    alert("Error aplicando el color: " + e.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = textoOriginal;
+                }
+            });
             el("fuerzaNaranja", slot).addEventListener("input", function() {
 
                 el("valorFuerzaNaranja", slot).innerText = this.value;
@@ -1773,6 +2162,7 @@
                     estado[slot].archivoModificado = true;
                     estado[slot].imagenCargadaUrl = null;
                     estado[slot].imagenCargadaId = null;
+                    estado[slot].tareaActivaId = null;
                 }
 
 
@@ -2449,6 +2839,19 @@
                         throw new Error("No se obtuvo la URL de la imagen subida. No se puede crear la tarea.");
                     }
 
+                    let urlFondoCustom = "";
+                    let idFondoCustom = "";
+                    if (el("usarFondoCustom", slot).checked) {
+                        txtEstado.innerText = "🎨 Subiendo fondo personalizado del estudio...";
+                        const blobFondo = await obtenerBlobFondoCustom();
+                        const dataFondo = metodoSubida === "imgbb"
+                            ? await subirAImgBB(blobFondo)
+                            : await subirADrive(blobFondo, slot, "fondo_custom.jpg");
+                        urlFondoCustom = dataFondo.url;
+                        idFondoCustom = dataFondo.fileId || "";
+                        if (!urlFondoCustom) throw new Error("No se pudo subir el fondo personalizado.");
+                    }
+
                     const nuevaTareaRef = push(ref(db, "tareas_ia"));
 
                     await set(nuevaTareaRef, {
@@ -2470,7 +2873,9 @@
                         retoque_sat: parseInt(el("sliderSat", slot).value),
                         retoque_lum: parseInt(el("sliderLum", slot).value),
 
-                        fondo_id: el("fondoIA", slot).value,
+                        fondo_id: el("usarFondoCustom", slot).checked ? "custom" : el("fondoIA", slot).value,
+                        url_fondo_custom: urlFondoCustom,
+                        id_fondo_custom: idFondoCustom,
 
                         dimension: dimensionElegida,
 

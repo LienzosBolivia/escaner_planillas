@@ -1141,16 +1141,19 @@
 
             const txtEstado = el("estado", slot);
 
-            txtEstado.innerText = "Transfiriendo imagen al panel...";
+            txtEstado.innerText = "Transfiriendo imagen ORIGINAL al panel...";
 
             txtEstado.classList.remove("hidden");
 
             try {
 
                 const ov = (tareaId && estado[slot].coloresLocales[tareaId]) ? estado[slot].coloresLocales[tareaId].limpia : null;
-                const proxyUrl = ov || ("https://wsrv.nl/?url=" + encodeURIComponent(urlThumbnail || urlReal) + "&output=jpg");
+                let fuente = ov;
+                // Sin color local: bytes originales por Apps Script; respaldo: urlReal (NUNCA la miniatura) con q=100
+                if (!fuente) fuente = await descargarOriginalDrive(driveId, slot);
+                if (!fuente) fuente = "https://wsrv.nl/?url=" + encodeURIComponent(urlReal) + "&output=jpg&q=100";
 
-                const response = await fetch(proxyUrl);
+                const response = await fetch(fuente);
 
                 if (!response.ok) throw new Error("Fallo en la transferencia");
 
@@ -1946,10 +1949,23 @@
             return _mulMat(HUE, _mulMat(SEP, _mulMat(BRI, SAT)));
         }
 
-        async function cargarImagenParaCanvas(url) {
-            const src = (url.startsWith("data:") || url.startsWith("blob:"))
-                ? url
-                : "https://wsrv.nl/?url=" + encodeURIComponent(url) + "&output=jpg";
+        async function descargarOriginalDrive(driveId, slot) {
+            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+            if (!driveId || driveId === "undefined" || !urlWebHook) return null;
+            try {
+                const r = await fetch(`${urlWebHook}?action=download&fileId=${encodeURIComponent(driveId)}`);
+                const j = await r.json();
+                if (j && j.success && j.base64) return `data:image/jpeg;base64,${j.base64}`;
+            } catch (e) { console.warn("Descarga directa por Apps Script falló, usando respaldo:", e); }
+            return null;
+        }
+
+        async function cargarImagenParaCanvas(url, driveId = "", slot = 1) {
+            let src = url;
+            if (!url.startsWith("data:") && !url.startsWith("blob:")) {
+                src = await descargarOriginalDrive(driveId, slot);
+                if (!src) src = "https://wsrv.nl/?url=" + encodeURIComponent(url) + "&output=jpg&q=100";
+            }
             const img = new Image();
             img.crossOrigin = "anonymous";
             img.src = src;
@@ -1957,16 +1973,16 @@
             return img;
         }
 
-        async function aplicarColorAUrl(urlImagen, params) {
-            const img = await cargarImagenParaCanvas(urlImagen);
+        async function aplicarColorAUrl(urlImagen, params, driveId = "", slot = 1) {
+            const img = await cargarImagenParaCanvas(urlImagen, driveId, slot);
             const c = document.createElement("canvas");
             c.width = img.naturalWidth; c.height = img.naturalHeight;
             const ctx = c.getContext("2d");
             if (soportaFiltroCanvas()) {
                 ctx.filter = filtroCSSDesdeParams(params);
-                ctx.drawImage(img, 0, 0);
+                ctx.drawImage(img, 0, 0, c.width, c.height);
             } else {
-                ctx.drawImage(img, 0, 0);
+                ctx.drawImage(img, 0, 0, c.width, c.height);
                 const id = ctx.getImageData(0, 0, c.width, c.height);
                 const d = id.data, m = matrizColorDesdeParams(params);
                 for (let i = 0; i < d.length; i += 4) {
@@ -1977,7 +1993,7 @@
                 }
                 ctx.putImageData(id, 0, 0);
             }
-            return c.toDataURL("image/jpeg", 0.96);
+            return c.toDataURL("image/jpeg", 1.0);
         }
 
         function inicializarPanel(slot) {
@@ -2064,8 +2080,8 @@
                     if (t) {
                         const previo = estado[slot].coloresLocales[idTarea] || {};
                         const nuevo = { ...previo };
-                        nuevo.limpia = await aplicarColorAUrl(previo.limpia || t.urlResultado, params);
-                        if (t.urlResultadoMalla) nuevo.malla = await aplicarColorAUrl(previo.malla || t.urlResultadoMalla, params);
+                        nuevo.limpia = await aplicarColorAUrl(previo.limpia || t.urlResultado, params, previo.limpia ? "" : (t.driveId || ""), slot);
+                        if (t.urlResultadoMalla) nuevo.malla = await aplicarColorAUrl(previo.malla || t.urlResultadoMalla, params, previo.malla ? "" : (t.driveIdMalla || ""), slot);
                         estado[slot].coloresLocales[idTarea] = nuevo;
                         renderizarHistorial(slot);
                     }

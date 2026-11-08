@@ -1,0 +1,3134 @@
+<!DOCTYPE html>
+
+<html lang="es">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Panel IA - Laboratorio Profesional</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+
+
+    <!-- Librería profesional para recortes (Cropper.js) -->
+
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+
+    <style>
+        /* Bloquear menú contextual de imágenes y gestos nativos en el área de recorte */
+        .cropper-container, 
+        .cropper-container img, 
+        .cropper-drag-box, 
+        .cropper-crop-box, 
+        canvas, 
+        [id^="contenedorLienzo-"] {
+            -webkit-touch-callout: none !important;
+            -webkit-user-select: none !important;
+            user-select: none !important;
+            touch-action: none !important;
+            outline: none !important;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-white min-h-screen p-4 md:p-8 flex flex-col items-center">
+
+
+
+    <!-- ========================================================== -->
+
+    <!-- BARRA DE PESTAÑAS (5 servidores/paneles independientes)    -->
+
+    <!-- ========================================================== -->
+
+    <div class="w-full max-w-5xl mb-4">
+
+        <div id="barraPestañas" class="flex gap-1 bg-gray-800 p-1 rounded-xl shadow-lg overflow-x-auto"></div>
+
+    </div>
+
+
+
+    <div id="panelesContenedor" class="w-full max-w-5xl"></div>
+    <div id="panel-fondos" class="w-full max-w-5xl hidden">
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl">
+                <h2 class="text-2xl font-bold mb-1 text-teal-400">🎨 Estudio de Creación de Fondos</h2>
+                <p class="text-xs text-gray-400 mb-5">Diseña un fondo con aro de luz de estudio o sube uno propio. Se usará cuando marques la casilla en cualquier pestaña.</p>
+
+                <label class="block text-sm font-bold text-gray-300 mb-1">Estilo de halo / iluminación:</label>
+                <select id="estiloFondoCustom" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
+                    <option value="halo_clasico">⭕ Halo de Estudio Clásico (centro claro → borde oscuro)</option>
+                    <option value="halo_retrato">👤 Halo Retrato Alto (luz a la altura del rostro)</option>
+                    <option value="halo_suave">☁️ Degradado Suave (transición amplia)</option>
+                    <option value="vineta_profunda">🌑 Viñeta Dramática Profunda</option>
+                    <option value="luz_diamante">💎 Halo Diamante Difuso</option>
+                    <option value="imagen_subida">📁 Usar imagen propia subida</option>
+                </select>
+
+                <div id="controlesGeneradorFondo">
+                    <div class="grid grid-cols-2 gap-3 mb-4">
+                        <div class="bg-gray-700 p-3 rounded">
+                            <label class="block text-xs font-bold text-gray-300 mb-1">🎯 Color base:</label>
+                            <input type="color" id="colorBaseFondo" value="#3b5998" class="w-full h-10 rounded cursor-pointer bg-transparent">
+                        </div>
+                        <div class="bg-gray-700 p-3 rounded flex flex-col justify-center">
+                            <label class="flex items-center gap-2 text-xs font-bold text-gray-300 cursor-pointer mb-2">
+                                <input type="checkbox" id="autoColorCentro" checked class="w-4 h-4 accent-teal-500">
+                                Centro/borde automático
+                            </label>
+                            <div id="selectorManualExtremos" class="hidden flex gap-2">
+                                <input type="color" id="colorCentroManual" value="#7ca1eb" title="Color centro" class="w-1/2 h-7 rounded cursor-pointer">
+                                <input type="color" id="colorBordeManual" value="#192847" title="Color borde" class="w-1/2 h-7 rounded cursor-pointer">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="mb-4 bg-gray-700 p-3 rounded">
+                        <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>Luz de centro (claridad):</span><span id="valLuzCentro" class="text-teal-300">45%</span></div>
+                        <input type="range" id="sliderLuzCentro" min="0" max="90" value="45" class="w-full cursor-pointer">
+                    </div>
+                    <div class="mb-4 bg-gray-700 p-3 rounded">
+                        <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>Oscuridad del aro exterior:</span><span id="valOscuridadBorde" class="text-teal-300">55%</span></div>
+                        <input type="range" id="sliderOscuridadBorde" min="0" max="90" value="55" class="w-full cursor-pointer">
+                    </div>
+                    <div class="mb-4 bg-gray-700 p-3 rounded">
+                        <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>Tamaño del aro de luz:</span><span id="valRadioHalo" class="text-teal-300">65%</span></div>
+                        <input type="range" id="sliderRadioHalo" min="20" max="100" value="65" class="w-full cursor-pointer">
+                    </div>
+                    <div class="mb-4 bg-gray-700 p-3 rounded">
+                        <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>Textura / grano suave:</span><span id="valTexturaFondo" class="text-teal-300">12%</span></div>
+                        <input type="range" id="sliderTexturaFondo" min="0" max="40" value="12" class="w-full cursor-pointer">
+                    </div>
+                </div>
+
+                <div class="mb-5 bg-gray-700 p-3 rounded border border-gray-600">
+                    <label class="block text-xs font-bold text-teal-300 mb-1">📤 ¿Prefieres subir tu propio fondo?</label>
+                    <input type="file" id="archivoFondoPropio" accept="image/*" class="w-full text-xs p-2 bg-gray-600 rounded cursor-pointer">
+                </div>
+
+                <button type="button" id="btnExportarFondo" class="w-full bg-teal-600 hover:bg-teal-500 text-white font-bold py-3 rounded shadow-lg transition">
+                    💾 Descargar este fondo (alta resolución)
+                </button>
+            </div>
+
+            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col items-center justify-center">
+                <h3 class="text-sm font-bold text-gray-300 mb-3">👁️ Vista previa en vivo (fondo activo para las pestañas)</h3>
+                <canvas id="canvasFondoCustom" width="1200" height="1600" class="w-full max-w-sm rounded-lg shadow-2xl border-2 border-teal-500"></canvas>
+                <p id="estadoFondoCustom" class="text-xs text-teal-400 font-bold mt-3">✅ Este fondo está listo para usarse.</p>
+            </div>
+        </div>
+    </div>
+
+
+
+    <!-- ========================================================== -->
+
+    <!-- PLANTILLA DE UN PANEL (se clona 5 veces, una por pestaña)   -->
+
+    <!-- ========================================================== -->
+
+    <template id="plantillaPanel">
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+
+
+            <!-- COLUMNA IZQUIERDA: CONTROLES Y LIENZO -->
+
+            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl">
+
+                <h1 class="text-2xl font-bold mb-1 text-blue-400">⚡ Nueva Tarea IA</h1>
+
+                <p class="text-xs text-gray-500 mb-5">Pestaña __SLOT__ · servidor y cola independientes</p>
+
+                <div class="mb-4 bg-gray-700 p-3 rounded border border-blue-500">
+                    <label class="block text-sm font-bold text-blue-300 mb-2">☁️ Método de Subida (imágenes al servidor):</label>
+                    <select id="metodoSubida-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
+                        <option value="imgbb" selected>🚀 ImgBB (Alternativo - Más Rápido)</option>
+                        <option value="drive">📂 Google Drive (Actual - Seguro)</option>
+                    </select>
+                    <p class="text-[11px] text-gray-400 mt-1">Si cargas una imagen del historial, se reutiliza su enlace existente y no se sube de nuevo.</p>
+                </div>
+
+
+
+                <input type="file" id="archivo-__SLOT__" accept="image/*" class="w-full mb-4 p-2 bg-gray-700 rounded cursor-pointer">
+
+
+
+                <!-- Imagen de referencia del rostro original (solo para "Restaurar Rostro + Quitar Logo IA") -->
+
+                <div id="contenedorRostroRef-__SLOT__" class="hidden mb-4">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-1">📸 Foto con el rostro ORIGINAL a mantener (opcional):</label>
+
+                    <input type="file" id="archivoRostro-__SLOT__" accept="image/*" class="w-full p-2 bg-gray-700 rounded cursor-pointer">
+
+                    <p class="text-[11px] text-gray-500 mt-1">Las dos cosas son independientes y podes usar una, la otra, o ambas: 1) Si subis esta foto, se recorta el rostro y se pone en la imagen del panel. 2) Si pintas con el pincel de abajo sobre el logo de la IA (Gemini u otra), se borra ese logo. Si no subis foto, no se toca el rostro; si no pintas nada, no se toca el logo.</p>
+
+                    <div id="contenedorUsarCodeformer-__SLOT__" class="hidden mt-2 flex items-center gap-2 bg-gray-900 p-2 rounded">
+
+                        <input type="checkbox" id="usarCodeformer-__SLOT__" checked class="w-4 h-4 cursor-pointer">
+
+                        <label for="usarCodeformer-__SLOT__" class="text-xs font-bold text-gray-300 cursor-pointer">✨ Usar CodeFormer para restaurar el rostro de referencia (recomendado). Si lo desmarcas, solo se trasplanta el rostro tal cual, sin restaurarlo.</label>
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- Controles de Recorte Manual -->
+
+                <div id="controlesEdicion-__SLOT__" class="hidden flex gap-2 mb-4">
+
+                    <button id="btnActivarRecorte-__SLOT__" class="flex-1 bg-yellow-600 hover:bg-yellow-500 text-white text-sm py-2 rounded font-bold shadow transition">✂️ Recorte Manual</button>
+
+                    <button id="btnAplicarRecorte-__SLOT__" class="hidden flex-1 bg-green-600 hover:bg-green-500 text-white text-sm py-2 rounded font-bold shadow transition">✅ Aplicar Recorte</button>
+
+                    <button id="btnCancelarRecorte-__SLOT__" class="hidden bg-red-600 hover:bg-red-500 text-white text-sm px-4 py-2 rounded font-bold shadow transition">❌</button>
+
+                    <button id="btnGirarRecorte-__SLOT__" title="Girar el cuadro de corte (vertical ↔ horizontal)" class="hidden bg-blue-600 hover:bg-blue-500 text-white text-sm px-3 py-2 rounded font-bold shadow transition">🔄 Girar</button>
+
+                    <button id="btnAutoEncuadre-__SLOT__" title="Centrar automáticamente a la persona con la misma distancia a ambos lados de la cabeza" class="hidden bg-purple-600 hover:bg-purple-500 text-white text-sm px-3 py-2 rounded font-bold shadow transition">🎯 Auto</button>
+
+                </div>
+
+                <div id="guiaRecorte-__SLOT__" class="hidden mb-4 bg-gray-900 border border-yellow-600 text-yellow-300 text-xs font-bold p-2 rounded text-center"></div>
+
+                <div id="ajusteTamanoRecorte-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded">
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-sm font-bold text-gray-300">📏 Tamaño del encuadre:</span>
+                        <span id="valorTamanoRecorte-__SLOT__" class="text-sm font-bold text-yellow-300">100%</span>
+                    </div>
+                    <input type="range" id="sliderTamanoRecorte-__SLOT__" min="40" max="150" value="100" class="w-full cursor-pointer">
+                    <p class="text-[11px] text-gray-400 mt-1">Menos % = cuadro más chico (más zoom). Más % = más aire alrededor.</p>
+                    <div class="flex justify-between items-center mt-3 mb-1">
+                        <span class="text-sm font-bold text-gray-300">↕ Subir / bajar el cuadro:</span>
+                        <span id="valorPosVerticalRecorte-__SLOT__" class="text-sm font-bold text-yellow-300">Posición original</span>
+                    </div>
+                    <input type="range" id="sliderPosVerticalRecorte-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                    <p class="text-[11px] text-gray-400 mt-1">Izquierda = sube el cuadro (muestra más arriba). Derecha = lo baja. El centro horizontal no se mueve.</p>
+                </div>
+
+
+
+                <!-- Probador rápido de fondos: aparece cuando ya existe un recorte "sin fondo" -->
+
+                <div id="probadorFondos-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded border border-purple-500">
+
+                    <label class="block text-sm font-bold text-purple-300 mb-2">🎨 Probador de Fondos (usa el recorte ya hecho, es rápido)</label>
+
+                    <div class="flex gap-2 mb-2">
+
+                        <input type="number" id="fondoPrueba-__SLOT__" min="0" max="25" value="1" class="w-20 p-2 bg-gray-600 rounded text-white font-bold text-center">
+
+                        <button id="btnProbarFondo-__SLOT__" class="flex-1 bg-purple-600 hover:bg-purple-500 text-white text-sm py-2 rounded font-bold shadow transition">👁️ Probar este fondo</button>
+
+                    </div>
+
+                    <p class="text-[11px] text-gray-400">Cambia el número y volvé a apretar "Probar" tantas veces como quieras — no vuelve a cortar, solo cambia el fondo. Cuando encuentres el que te gusta, usá ese número en "Fondo Nº" más abajo y enviá la tarea normal (Proceso Completo / Solo Quitar Fondo) para el resultado final.</p>
+
+                </div>
+
+
+
+                <!-- EL LIENZO DE DIBUJO -->
+
+                <div id="contenedorLienzo-__SLOT__" class="relative hidden mb-4 border-2 border-dashed border-gray-500 rounded bg-gray-900 overflow-hidden" style="-webkit-touch-callout: none;">
+
+                    <img id="imgFondo-__SLOT__" class="w-full h-auto block" src="" style="-webkit-touch-callout: none; -webkit-user-select: none; user-select: none; touch-action: none;" draggable="false" oncontextmenu="return false;">
+
+                    <canvas id="lienzoDibujo-__SLOT__" class="absolute top-0 left-0 w-full h-full cursor-crosshair" style="touch-action: none;" oncontextmenu="return false;"></canvas>
+
+                </div>
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+                    <div class="flex items-center gap-2 mb-3">
+                        <input type="checkbox" id="activarRetoquePiel-__SLOT__" class="w-4 h-4 cursor-pointer accent-pink-500">
+                        <label for="activarRetoquePiel-__SLOT__" class="text-sm font-bold text-pink-400 cursor-pointer">🎨 Retoque Manual de Piel (Avanzado)</label>
+                    </div>
+                    <div id="panelRetoquePiel-__SLOT__" class="hidden flex-col gap-4 pl-4 border-l-2 border-pink-500">
+                        <p class="text-[11px] text-gray-400 leading-tight">La vista previa afecta toda la foto como guía, pero el servidor aplicará estos ajustes <b>solo a la piel</b> de la persona.</p>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>❄️ Más Frío</span><span>Temperatura: <span id="valTemp-__SLOT__" class="text-pink-300">0</span></span><span>🔥 Más Cálido</span></div>
+                            <input type="range" id="sliderTemp-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>🧟 Pálido</span><span>Saturación: <span id="valSat-__SLOT__" class="text-pink-300">0</span></span><span>🍓 Vivo</span></div>
+                            <input type="range" id="sliderSat-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                        </div>
+                        <div>
+                            <div class="flex justify-between text-xs font-bold text-gray-300 mb-1"><span>🌑 Oscuro</span><span>Luminosidad: <span id="valLum-__SLOT__" class="text-pink-300">0</span></span><span>☀️ Claro</span></div>
+                            <input type="range" id="sliderLum-__SLOT__" min="-50" max="50" value="0" class="w-full cursor-pointer">
+                        </div>
+                        <div class="pt-2 border-t border-gray-600 flex flex-col gap-2">
+                            <button type="button" id="btnAplicarColorLocal-__SLOT__" class="w-full bg-pink-600 hover:bg-pink-500 text-white text-xs py-2.5 rounded font-bold shadow transition">
+                                ✨ Aplicar este color al instante (imagen + malla) sin servidor
+                            </button>
+                            <button type="button" id="btnDescargarLienzoColor-__SLOT__" class="w-full bg-gray-600 hover:bg-gray-500 text-white text-xs py-2 rounded font-bold shadow transition">
+                                💾 Descargar imagen actual con este color
+                            </button>
+                            <p class="text-[10px] text-gray-400 leading-tight">
+                                Aplica el ajuste a TODA la foto en tu navegador. Si cargaste un trabajo del historial (⬇️), también actualiza al instante la foto limpia y la foto con malla de esa tarjeta (hasta que recargues la página).
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+
+
+                <div id="controlesPincel-__SLOT__" class="hidden mb-4 bg-gray-700 p-3 rounded flex justify-between items-center">
+
+                    <span class="text-sm font-bold text-gray-300">Grosor Pincel:</span>
+
+                    <input type="range" id="grosorPincel-__SLOT__" min="5" max="50" value="20" class="w-1/2 mx-2">
+
+                    <button id="btnLimpiar-__SLOT__" class="bg-red-500 hover:bg-red-600 text-xs px-3 py-1 rounded font-bold shadow">Limpiar</button>
+
+                </div>
+
+
+
+                <label class="block text-sm font-bold text-gray-300 mb-1">Acción a realizar:</label>
+
+                <select id="comando-__SLOT__" class="w-full mb-4 p-3 bg-gray-700 rounded font-semibold text-white">
+
+                    <option value="proceso_completo">🏭 Proceso Completo (Full)</option>
+
+                    <option value="solo_encuadre">🎯 Solo Encuadre Automático</option>
+
+                    <option value="recorte_manual" selected>📐 Recorte Manual Expansivo</option>
+
+                    <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
+
+                    <option value="solo_recortar">✂️ Solo Quitar + Cambiar Fondo</option>
+
+                    <option value="cortar_sin_fondo">🖼️ Cortar Sin Fondo (para probar fondos)</option>
+
+                    <option value="armonizar_color">🎨 Armonizar / Emparejar Color</option>
+
+                    <option value="restaurar_rostro_logo">🧑‍🎨 Restaurar Rostro Original + Quitar Logo IA</option>
+
+                </select>
+
+
+
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-2">Tamaño de Impresión (cm):</label>
+
+                    <select id="select-dimension-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
+
+                        <option value="original">Mantener Original</option>
+
+                        <option value="13x18">13 x 18 cm</option>
+
+                        <option value="16x22">16 x 22 cm</option>
+
+                        <option value="20x27">20 x 27 cm</option>
+
+                        <option value="30x42">30 x 42 cm</option>
+
+                        <option value="40x50">40 x 50 cm</option>
+
+                        <option value="50x60">50 x 60 cm</option>
+
+                    </select>
+
+                </div>
+
+
+
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-2">Malla de Misión:</label>
+
+                    <select id="select-malla-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
+
+                        <option value="0">Ninguna (Sin malla)</option>
+
+                        <option value="1">Malla Misión 1</option>
+
+                        <option value="2">Malla Misión 2</option>
+
+                        <option value="3">Malla Misión 3</option>
+
+                    </select>
+
+                </div>
+
+
+
+                <div class="mb-4 bg-gray-700 p-3 rounded">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-2">Fondo Nº (0 = Transparente):</label>
+
+                    <input type="number" id="fondoIA-__SLOT__" min="0" max="25" value="0" class="w-full p-2 bg-gray-600 rounded text-white font-bold text-center">
+                    <div class="mt-2 flex items-start gap-2 bg-gray-800 p-2 rounded border border-teal-500">
+                        <input type="checkbox" id="usarFondoCustom-__SLOT__" class="w-4 h-4 mt-0.5 cursor-pointer accent-teal-500">
+                        <label for="usarFondoCustom-__SLOT__" class="text-xs font-bold text-teal-300 cursor-pointer">
+                            🎨 Usar el fondo diseñado/subido en la pestaña "🎨 Crear Fondo" (ignora el número de arriba)
+                        </label>
+                    </div>
+
+                </div>
+
+
+
+                <div class="mb-6 bg-gray-700 p-3 rounded">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-2">
+
+                        Nivel / Fuerza (Armonización y Restauración): <span id="valorFidelidad-__SLOT__" class="text-blue-400">0.7</span>
+
+                    </label>
+
+                    <input type="range" id="fidelidadIA-__SLOT__" min="0.1" max="1.0" step="0.1" value="0.7" class="w-full cursor-pointer">
+
+                </div>
+
+
+
+                <div class="mb-6 bg-gray-700 p-3 rounded">
+
+                    <label class="block text-sm font-bold text-gray-300 mb-2">
+
+                        Corrección Anti-Naranja (piel): <span id="valorFuerzaNaranja-__SLOT__" class="text-orange-400">0</span>
+
+                    </label>
+
+                    <input type="range" id="fuerzaNaranja-__SLOT__" min="0" max="1" step="0.05" value="0" class="w-full cursor-pointer">
+
+                    <p class="text-xs text-gray-400 mt-1">0 = sin corrección, 1 = corrección máxima.</p>
+
+                </div>
+
+
+
+                <div class="mb-6 bg-gray-700 p-3 rounded flex items-center gap-2">
+
+                    <input type="checkbox" id="mantenerColorOriginal-__SLOT__" checked class="w-4 h-4 cursor-pointer">
+
+                    <label for="mantenerColorOriginal-__SLOT__" class="text-xs font-bold text-gray-300 cursor-pointer">🎨 Mantener color original de ojos/piel (evita que CodeFormer pinte los ojos de azul/claro). Si lo desmarcas, CodeFormer puede cambiar los colores libremente.</label>
+
+                </div>
+
+                <div class="mb-6 bg-gray-700 p-3 rounded flex items-start gap-2 border border-purple-500">
+                    <input type="checkbox" id="forzarLaMa-__SLOT__" class="w-4 h-4 mt-1 cursor-pointer">
+                    <label for="forzarLaMa-__SLOT__" class="text-xs font-bold text-purple-300 cursor-pointer">🪄 Forzar expansión de cuerpo (hombros/brazos).<br>
+                    <span class="text-gray-400 font-normal">Márcalo si expandes el recorte y vas a poner un fondo nuevo: el sistema extiende hombros y torso con geometría antes del recorte.</span></label>
+                </div>
+
+
+
+                <button id="btnEnviar-__SLOT__" class="w-full bg-blue-600 hover:bg-blue-500 font-bold py-3 rounded transition-colors shadow-lg"
+
+                    Enviar Tarea al Servidor de la Pestaña __SLOT__
+
+                </button>
+
+
+
+                <div id="estado-__SLOT__" class="mt-4 text-center font-bold text-yellow-400 hidden">Iniciando...</div>
+
+
+
+                <!-- PANEL DE ENERGÍA DEL SERVIDOR (Fuera del botón) -->
+
+                <div class="mt-8 border-t border-gray-600 pt-4">
+
+                    <div class="flex justify-between items-center mb-3">
+
+                        <h3 class="text-sm font-bold text-gray-400">Gestión del Servidor · Pestaña __SLOT__</h3>
+
+                        <button id="btnConfigurarURLs-__SLOT__" class="text-gray-400 hover:text-white text-xs underline transition">⚙️ Configurar URL</button>
+
+                    </div>
+
+
+
+                    <div class="flex flex-col gap-3">
+
+                        <!-- Botones Principales -->
+
+                        <div class="flex justify-between gap-2">
+
+                            <button id="btnPrender-__SLOT__" class="flex-1 bg-green-900 hover:bg-green-800 text-xs text-white py-2 rounded font-bold shadow transition">🟢 Iniciar Servidor (Kaggle CPU)</button>
+
+                            <button id="btnInterrumpir-__SLOT__" title="Cancelar el proceso actual sin apagar el servidor" class="w-28 bg-yellow-600 hover:bg-yellow-500 text-xs text-white py-2 rounded font-bold shadow transition">⏹️ Interrumpir</button>
+
+                            <button id="btnApagar-__SLOT__" class="w-24 bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow transition">🔴 Apagar</button>
+
+                        </div>
+
+
+
+                        <!-- Botones de Emergencia (control manual, sin automatismos por tiempo) -->
+
+                        <div class="flex justify-between gap-2">
+
+                            <button onclick="forzarDesbloqueo('__SLOT__')" class="w-full bg-red-950 hover:bg-red-900 text-[10px] text-white py-2 rounded font-bold shadow transition border border-red-700">🔓 Forzar Desbloqueo</button>
+
+                            <button onclick="reencolarTareaAtascada('__SLOT__')" class="w-full bg-orange-900 hover:bg-orange-800 text-[10px] text-white py-2 rounded font-bold shadow transition border border-orange-700">🔄 Reencolar Atascada</button>
+
+                        </div>
+
+
+
+                        <!-- Barra de Carga (progreso REAL reportado por los logs del notebook de Kaggle) -->
+
+                        <div id="contenedorCarga-__SLOT__" class="hidden w-full flex-col items-center bg-gray-800 p-3 rounded border border-gray-600 shadow-inner">
+
+                            <div class="flex justify-between w-full mb-1">
+
+                                <span id="textoCarga-__SLOT__" class="text-xs text-blue-400 font-bold animate-pulse">Conectando con Kaggle...</span>
+
+                                <span id="porcentajeCarga-__SLOT__" class="text-xs text-gray-300 font-bold">0%</span>
+
+                            </div>
+
+                            <div class="w-full bg-gray-900 rounded-full h-3">
+
+                                <div id="barraCarga-__SLOT__" class="bg-blue-500 h-3 rounded-full transition-all duration-700 ease-out" style="width: 0%"></div>
+
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- COLUMNA DERECHA: HISTORIAL PERSISTENTE (independiente por pestaña) -->
+
+            <div class="bg-gray-800 p-6 rounded-xl shadow-2xl flex flex-col h-[850px]">
+
+                <h2 class="text-xl font-bold mb-4 text-green-400">📂 Historial de Trabajos · Pestaña __SLOT__</h2>
+
+                <div id="contenedorHistorial-__SLOT__" class="overflow-y-auto flex-1 pr-2 space-y-4"></div>
+
+            </div>
+
+        </div>
+
+    </template>
+
+
+
+    <!-- Scripts de Firebase y Lógica -->
+
+    <script type="module">
+
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+
+        // 🔥 Importamos Realtime Database en vez de Firestore
+
+        import { getDatabase, ref, push, onValue, update, set, get, remove, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+
+
+        const firebaseConfig = {
+
+            apiKey: "AIzaSyDP1vPBXFQkvzx1YIbTCziOzXDRxQ6a_kM",
+
+            authDomain: "botartes.firebaseapp.com",
+
+            databaseURL: "https://botartes-default-rtdb.firebaseio.com", // <-- AÑADIDO
+
+            projectId: "botartes",
+
+            messagingSenderId: "513493472800",
+
+            appId: "1:513493472800:web:55b4aed3c9ae1435aa0e45"
+
+        };
+
+        const app = initializeApp(firebaseConfig);
+
+        const db = getDatabase(app); // Ahora usamos getDatabase
+
+        const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0"; // ya no se usa para subir, se deja por si acaso
+
+        async function subirAImgBB(archivoOBlob) {
+            const formData = new FormData();
+            formData.append("image", archivoOBlob);
+            const resp = await fetch("https://api.imgbb.com/1/upload?key=" + API_KEY_IMGBB, { method: "POST", body: formData });
+            const data = await resp.json();
+            if (!data.success) throw new Error("Error en ImgBB: " + ((data.error && data.error.message) || "desconocido"));
+            return { success: true, url: data.data.url, fileId: "" };
+        }
+
+
+
+        // 📤 Sube un archivo/blob a Google Drive a través del Apps Script (doPost,
+
+        // action "upload"), en vez de a ImgBB. Kaggle tiene que descargar estas
+
+        // imágenes, y las IPs de datacenter de Kaggle suelen quedar bloqueadas
+
+        // silenciosamente por ImgBB (conexión abierta que nunca entrega datos).
+
+        // Drive no tiene ese problema porque ya usamos ese mismo canal para
+
+        // subir los resultados finales sin fallos.
+
+        // Tamaño de cada pedazo (en caracteres Base64, ~1MB). Apps Script se
+        // ahoga si le mandamos el archivo completo de un solo golpe, así que
+        // lo cortamos en pedacitos, los subimos uno por uno como .txt
+        // temporales en Drive, y al final le pedimos a Apps Script que los
+        // pegue y arme la imagen final.
+        const TAMANO_CHUNK = 1000000;
+
+        function leerComoBase64(archivoOBlob) {
+            return new Promise((resolve, reject) => {
+                const lector = new FileReader();
+                lector.onload = () => resolve(lector.result.split(",")[1]);
+                lector.onerror = () => reject(new Error("No se pudo leer el archivo para subirlo."));
+                lector.readAsDataURL(archivoOBlob);
+            });
+        }
+
+        async function llamarAppsScript(urlWebHook, cuerpo, reintentos = 3) {
+            for (let intento = 1; intento <= reintentos; intento++) {
+                let textoCrudo;
+                try {
+                    const respuesta = await fetch(urlWebHook, {
+                        method: "POST",
+                        headers: {
+                            "Content-Type": "text/plain;charset=utf-8" // evita el preflight OPTIONS que Apps Script rechaza
+                        },
+                        body: JSON.stringify(cuerpo),
+                        redirect: "follow"
+                    });
+                    textoCrudo = await respuesta.text();
+                } catch (error) {
+                    // Fallo de red (script "dormido" por cold start): reintentamos
+                    if (intento === reintentos) throw error;
+                    await new Promise(r => setTimeout(r, 1000 * intento));
+                    continue;
+                }
+
+                try {
+                    return JSON.parse(textoCrudo); // JSON válido: éxito
+                } catch (e) {
+                    // Google devolvió HTML en vez de JSON: puede ser cold start
+                    // despertando a medias, o que falte publicar una "Nueva versión".
+                    console.error("Respuesta cruda de Apps Script (no es JSON):", textoCrudo.slice(0, 500));
+                    if (intento === reintentos) {
+                        throw new Error(
+                            "Google Apps Script devolvió una página en vez de JSON (probablemente falta " +
+                            "publicar una 'Nueva versión' del despliegue, o el acceso no es 'Cualquier usuario'). " +
+                            "Detalle: " + textoCrudo.slice(0, 150)
+                        );
+                    }
+                    await new Promise(r => setTimeout(r, 1000 * intento));
+                }
+            }
+        }
+
+        async function subirADrive(archivoOBlob, slotActual, nombreArchivo) {
+
+            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slotActual}`);
+
+            if (!urlWebHook) throw new Error("No hay URL de Apps Script guardada para este slot.");
+
+            const nombreFinal = nombreArchivo || (archivoOBlob.name || "imagen.jpg");
+            const mimeFinal = archivoOBlob.type || "image/jpeg";
+
+            const base64Completo = await leerComoBase64(archivoOBlob);
+
+            // ID único por subida, para que los .txt temporales de este
+            // archivo no se mezclen con los de otra subida simultánea.
+            const idUnico = "chunk_" + Date.now() + "_" + Math.floor(Math.random() * 100000);
+
+            const totalChunks = Math.ceil(base64Completo.length / TAMANO_CHUNK) || 1;
+
+            const txtEstado = document.getElementById(`estado-${slotActual}`);
+            const chunkIds = []; // guardamos el fileId real que Drive asigna a cada trozo
+
+            for (let i = 0; i < totalChunks; i++) {
+                if (txtEstado) txtEstado.innerText = `Subiendo ${nombreFinal}: parte ${i + 1} de ${totalChunks}...`;
+
+                const trozo = base64Completo.substring(i * TAMANO_CHUNK, (i + 1) * TAMANO_CHUNK);
+
+                const datosChunk = await llamarAppsScript(urlWebHook, {
+                    action: "upload_chunk",
+                    filename: idUnico,
+                    partIndex: i,
+                    chunkData: trozo
+                });
+
+                if (!datosChunk.success) {
+                    throw new Error("Falló la subida del pedazo " + (i + 1) + " de " + totalChunks + ": " + (datosChunk.error || "sin detalle"));
+                }
+
+                chunkIds.push(datosChunk.fileId);
+            }
+
+            if (txtEstado) txtEstado.innerText = `Ensamblando ${nombreFinal} en el servidor...`;
+
+            const datos = await llamarAppsScript(urlWebHook, {
+                action: "assemble",
+                filename: nombreFinal,
+                mimetype: mimeFinal,
+                chunkIds: chunkIds // en vez de totalChunks + idUnico, mandamos los IDs exactos
+            });
+
+            if (!datos.success) throw new Error("Falló subida a Google Drive: " + (datos.error || "sin detalle"));
+
+            if (!datos.url || !datos.fileId) {
+                // Esto NO debería pasar si Apps Script funcionó bien: success:true
+                // siempre debería venir con url y fileId. Si llegamos acá, casi
+                // seguro el "assemble" no encontró los chunks temporales (revisa
+                // los logs de Ejecuciones en el editor de Apps Script para ver
+                // qué pasó exactamente con este idUnico: "${idUnico}").
+                throw new Error(
+                    `Apps Script dijo "éxito" pero no devolvió URL/ID de archivo para "${nombreFinal}" ` +
+                    `(idUnico: ${idUnico}). Revisa "Ejecuciones" en el editor de Apps Script para ver el detalle.`
+                );
+            }
+
+            return datos; // { success, url, fileId }
+
+        }
+
+
+
+        const SLOTS = [1, 2, 3, 4, 5];
+
+        // Si no llega ninguna señal nueva del notebook en este tiempo, lo consideramos
+
+        // "sin conexión" aunque el último dato guardado diga que estaba escuchando.
+
+        const UMBRAL_INACTIVIDAD_MS = 40000;
+
+
+
+        // Estado independiente por cada pestaña/slot
+
+        const estado = {};
+
+        SLOTS.forEach(s => {
+
+            estado[s] = {
+
+                historialTareas: JSON.parse(localStorage.getItem(`tareasIA_${s}`)) || [],
+                cargandoDesdeHistorial: false,
+                archivoModificado: true,
+                imagenCargadaUrl: null,
+                imagenCargadaId: null, tareaActivaId: null, coloresLocales: {},
+
+                cropperInstance: null,
+
+                datosRecorte: null,
+
+                recorteHorizontal: false,
+
+                urlOriginalImagen: "",
+
+                urlSinFondo: "",
+
+                extraX: 0,
+
+                extraY: 0,
+
+                dibujando: false,
+
+                unsubServidor: null,
+
+                ultimoServidorDatos: null,
+
+                ultimoServidorMillis: null
+
+            };
+
+        });
+
+
+
+        function el(id, slot) { return document.getElementById(`${id}-${slot}`); }
+
+
+
+        // ==========================================
+        // DETECTORES PARA EL AUTO-ENCUADRE (MediaPipe, corre en el navegador)
+        // Se cargan solo la primera vez que se usa el botón "🎯 Auto".
+        // ==========================================
+        let _detectoresPromesa = null;
+        function obtenerDetectores() {
+            if (_detectoresPromesa) return _detectoresPromesa;
+            _detectoresPromesa = (async () => {
+                const base = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+                const vision = await import(`${base}/vision_bundle.mjs`);
+                const fileset = await vision.FilesetResolver.forVisionTasks(`${base}/wasm`);
+                const modelos = "https://storage.googleapis.com/mediapipe-models";
+                const cara = await vision.FaceDetector.createFromOptions(fileset, {
+                    baseOptions: { modelAssetPath: `${modelos}/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite` },
+                    runningMode: "IMAGE",
+                    minDetectionConfidence: 0.4
+                });
+                const persona = await vision.ObjectDetector.createFromOptions(fileset, {
+                    baseOptions: { modelAssetPath: `${modelos}/object_detector/efficientdet_lite0/float16/1/efficientdet_lite0.tflite` },
+                    runningMode: "IMAGE",
+                    scoreThreshold: 0.3,
+                    categoryAllowlist: ["person"]
+                });
+                // Segmentador de personas: permite medir la silueta REAL de la cabeza (pelo incluido)
+                let segmentador = null;
+                try {
+                    segmentador = await vision.ImageSegmenter.createFromOptions(fileset, {
+                        baseOptions: { modelAssetPath: `${modelos}/image_segmenter/selfie_segmenter/float16/latest/selfie_segmenter.tflite` },
+                        runningMode: "IMAGE",
+                        outputCategoryMask: true,
+                        outputConfidenceMasks: false
+                    });
+                } catch (e) { console.warn("Segmentador no disponible, se usará la caja del rostro:", e); }
+                return { cara, persona, segmentador };
+            })().catch(err => { _detectoresPromesa = null; throw err; });
+            return _detectoresPromesa;
+        }
+
+        // Mide el ancho REAL de la cabeza usando la silueta de la persona.
+        // Devuelve { izq, der } en píxeles de la imagen original, o null si no es confiable.
+        function medirCabeza(segmentador, img, rostro) {
+            const res = segmentador.segment(img);
+            try {
+                const m = res.categoryMask;
+                if (!m) return null;
+                const datos = m.getAsUint8Array();
+                const mw = m.width, mh = m.height;
+                const sx = img.naturalWidth / mw, sy = img.naturalHeight / mh;
+                const fcx = Math.min(mw - 1, Math.max(0, Math.round((rostro.originX + rostro.width / 2) / sx)));
+                const fcy = Math.min(mh - 1, Math.max(0, Math.round((rostro.originY + rostro.height / 2) / sy)));
+                const valPersona = datos[fcy * mw + fcx]; // el valor que tiene el centro del rostro = "persona"
+                const anchoRostroM = rostro.width / sx;
+                const ventana = Math.round(anchoRostroM * 1.4); // límite lateral para no "pegarse" a brazos u otras personas
+                const yIni = Math.max(0, Math.round((rostro.originY - rostro.height * 1.2) / sy));
+                const yFin = Math.min(mh - 1, Math.round((rostro.originY + rostro.height) / sy)); // hasta la barbilla
+                let izq = Infinity, der = -Infinity;
+                for (let y = yIni; y <= yFin; y++) {
+                    if (datos[y * mw + fcx] !== valPersona) continue;
+                    let l = fcx, r = fcx;
+                    while (l - 1 >= 0 && fcx - (l - 1) <= ventana && datos[y * mw + l - 1] === valPersona) l--;
+                    while (r + 1 < mw && (r + 1) - fcx <= ventana && datos[y * mw + r + 1] === valPersona) r++;
+                    if (l < izq) izq = l;
+                    if (r > der) der = r;
+                }
+                if (!isFinite(izq) || !isFinite(der)) return null;
+                const ancho = (der + 1 - izq) * sx;
+                // Sanidad: la cabeza debe medir algo razonable respecto a la caja del rostro
+                if (ancho < rostro.width * 0.9 || ancho > rostro.width * 2.2) return null;
+                return { izq: izq * sx, der: (der + 1) * sx };
+            } finally {
+                if (res && typeof res.close === "function") res.close();
+            }
+        }
+
+        // Calcula el cuadro de recorte (en píxeles de la imagen original) para que
+        // el centro del cuadro coincida EXACTAMENTE con el centro de la cabeza:
+        // misma distancia desde el borde izquierdo y derecho del cuadro hasta la cabeza.
+        // ratio = ancho/alto del cuadro (null = libre).
+        async function calcularAutoEncuadre(urlImagen, ratio) {
+            const img = new Image();
+            img.src = urlImagen;
+            await img.decode();
+            const { cara, persona, segmentador } = await obtenerDetectores();
+
+            const caras = cara.detect(img).detections.map(d => d.boundingBox);
+            const personas = persona.detect(img).detections.map(d => d.boundingBox);
+            const area = b => b.width * b.height;
+            if (!caras.length && !personas.length) throw new Error("No se detectó ninguna persona en la imagen.");
+
+            const rostro = caras.length ? caras.sort((a, b) => area(b) - area(a))[0] : null;
+            let cuerpo = null;
+            if (personas.length) {
+                const lista = personas.sort((a, b) => area(b) - area(a));
+                cuerpo = (rostro && lista.find(b =>
+                    rostro.originX + rostro.width / 2 >= b.originX && rostro.originX + rostro.width / 2 <= b.originX + b.width &&
+                    rostro.originY + rostro.height / 2 >= b.originY && rostro.originY + rostro.height / 2 <= b.originY + b.height
+                )) || lista[0];
+            }
+
+            // --- Límites izquierdo/derecho de la cabeza ---
+            let cabezaIzq, cabezaDer, metodo;
+            let medida = null;
+            if (rostro && segmentador) {
+                try { medida = medirCabeza(segmentador, img, rostro); } catch (e) { console.warn("medirCabeza falló:", e); }
+            }
+            if (medida) {
+                cabezaIzq = medida.izq; cabezaDer = medida.der; metodo = "silueta";
+            } else if (rostro) {
+                cabezaIzq = rostro.originX; cabezaDer = rostro.originX + rostro.width; metodo = "rostro";
+            } else {
+                cabezaIzq = cuerpo.originX + cuerpo.width * 0.3; cabezaDer = cuerpo.originX + cuerpo.width * 0.7; metodo = "cuerpo";
+            }
+            const cx = (cabezaIzq + cabezaDer) / 2; // eje central EXACTO de la cabeza
+
+            // Caja de la persona (si no hay cuerpo detectado, la estimamos a partir del rostro)
+            const pb = cuerpo
+                ? { x0: cuerpo.originX, y0: cuerpo.originY, x1: cuerpo.originX + cuerpo.width, y1: cuerpo.originY + cuerpo.height }
+                : { x0: cx - rostro.width * 2, y0: rostro.originY - rostro.height * 0.5, x1: cx + rostro.width * 2, y1: rostro.originY + rostro.height * 5 };
+            // La cabeza nunca debe quedar fuera por una caja de cuerpo imprecisa
+            pb.x0 = Math.min(pb.x0, cabezaIzq); pb.x1 = Math.max(pb.x1, cabezaDer);
+            if (rostro) pb.y0 = Math.min(pb.y0, rostro.originY - rostro.height * 0.3);
+
+            const MARGEN = 1.15; // 15% de aire a cada lado
+            const medioAncho = Math.max(cx - pb.x0, pb.x1 - cx) * MARGEN;
+            const altoPersona = pb.y1 - pb.y0;
+            let w = medioAncho * 2;
+            let h = ratio ? w / ratio : altoPersona * 1.25;
+            // Si la persona no entra a lo alto, agrandar manteniendo la proporción
+            if (h < altoPersona * 1.1) {
+                h = altoPersona * 1.1;
+                if (ratio) w = h * ratio;
+            }
+            // Aire arriba menor que abajo (25% / 75% del espacio sobrante)
+            const y = pb.y0 - (h - altoPersona) * 0.25;
+            return { x: cx - w / 2, y: y, width: w, height: h, cx, cabezaIzq, cabezaDer, metodo };
+        }
+
+        // Tamaños de impresión disponibles, en cm (ancho x alto), usados para
+
+        // bloquear la proporción del recorte manual y mostrar los "numeritos" en vivo.
+
+        const DIMENSIONES_CM = {
+            "13x18": [13, 18],
+
+            "16x22": [16, 22],
+
+            "20x27": [20, 27],
+
+            "30x42": [30, 42],
+
+            "40x50": [40, 50],
+
+            "50x60": [50, 60],
+
+        };
+
+
+
+        // ==========================================
+
+        // 1. CONSTRUIR LAS 5 PESTAÑAS Y SUS PANELES
+
+        // ==========================================
+
+        const barraPestañas = document.getElementById("barraPestañas");
+
+        const panelesContenedor = document.getElementById("panelesContenedor");
+
+        const plantilla = document.getElementById("plantillaPanel").innerHTML;
+
+
+
+        SLOTS.forEach(slot => {
+
+            // Botón de pestaña
+
+            const btnTab = document.createElement("button");
+
+            btnTab.id = `tab-${slot}`;
+
+            btnTab.className = "flex-1 min-w-[90px] py-2 rounded-lg text-sm font-bold transition-colors " +
+
+                (slot === 1 ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600");
+
+            btnTab.textContent = `Pestaña ${slot}`;
+
+            btnTab.addEventListener("click", () => cambiarPestaña(slot));
+
+            barraPestañas.appendChild(btnTab);
+
+
+
+            // Panel clonado desde la plantilla
+
+            const panel = document.createElement("div");
+
+            panel.id = `panel-${slot}`;
+
+            panel.className = slot === 1 ? "" : "hidden";
+
+            panel.innerHTML = plantilla.replaceAll("__SLOT__", slot);
+
+            panelesContenedor.appendChild(panel);
+
+        });
+
+
+
+        const btnTabFondos = document.createElement("button");
+        btnTabFondos.id = "tab-fondos";
+        btnTabFondos.className = "flex-1 min-w-[130px] py-2 px-3 rounded-lg text-sm font-bold transition-colors bg-teal-900 text-teal-200 hover:bg-teal-800";
+        btnTabFondos.textContent = "🎨 Crear Fondo";
+        btnTabFondos.addEventListener("click", () => cambiarPestaña("fondos"));
+        barraPestañas.appendChild(btnTabFondos);
+
+        const _cambiarPestañaSlots = function(slot) {
+
+            SLOTS.forEach(s => {
+
+                document.getElementById(`panel-${s}`).classList.toggle("hidden", s !== slot);
+
+                const tab = document.getElementById(`tab-${s}`);
+
+                tab.className = "flex-1 min-w-[90px] py-2 rounded-lg text-sm font-bold transition-colors " +
+
+                    (s === slot ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-300 hover:bg-gray-600");
+
+            });
+
+        };
+
+        window.cambiarPestaña = function(slot) {
+            _cambiarPestañaSlots(slot);
+            const panelFondos = document.getElementById("panel-fondos");
+            const tabFondos = document.getElementById("tab-fondos");
+            if (panelFondos && tabFondos) {
+                panelFondos.classList.toggle("hidden", slot !== "fondos");
+                tabFondos.className = "flex-1 min-w-[130px] py-2 px-3 rounded-lg text-sm font-bold transition-colors " +
+                    (slot === "fondos" ? "bg-teal-500 text-white" : "bg-teal-900 text-teal-200 hover:bg-teal-800");
+            }
+        };
+
+
+
+        // ==========================================
+
+        // 2. PERSISTENCIA Y RENDER DE HISTORIAL (por slot)
+
+        // ==========================================
+
+        function guardarEnLocalStorage(slot) {
+
+            localStorage.setItem(`tareasIA_${slot}`, JSON.stringify(estado[slot].historialTareas));
+
+            renderizarHistorial(slot);
+
+        }
+
+
+
+        window.eliminarTarea = async function(slot, id, driveId, driveIdMalla) {
+
+            if (confirm("¿Estás seguro de que quieres ocultar este trabajo y eliminar permanentemente las imágenes de tu Google Drive?")) {
+
+                const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+
+                if (urlWebHook) {
+
+                    if (driveId && driveId !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveId }) });
+
+                    if (driveIdMalla && driveIdMalla !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveIdMalla }) });
+
+                }
+
+                estado[slot].historialTareas = estado[slot].historialTareas.filter(t => t.id !== id);
+
+                guardarEnLocalStorage(slot);
+
+                // Borramos también la tarea real en Firebase (tareas_ia/{id}).
+                // Si no hacemos esto, la tarea sigue viva en la cola aunque la
+                // saquemos de la página, y "Reencolar Atascada" la trae de vuelta
+                // como una tarea "fantasma".
+                try {
+
+                    await remove(ref(db, `tareas_ia/${id}`));
+
+                } catch (err) {
+
+                    console.warn("No se pudo borrar la tarea en Firebase (puede que ya no exista):", err);
+
+                }
+
+            }
+
+        };
+
+
+
+        // Botón de emergencia: libera el candado de sesión en Firebase si Kaggle
+
+        // se apagó de golpe y el slot quedó "trabado" sin poder volver a arrancar.
+
+        window.forzarDesbloqueo = async function(slot) {
+
+            if (confirm(`¿Estás seguro? Solo usa esto si Kaggle se apagó por error y el Slot ${slot} quedó bloqueado.`)) {
+
+                try {
+
+                    await update(ref(db, `servidores/slot_${slot}`), { sesion_activa: "" });
+
+                    alert(`✅ Slot ${slot} desbloqueado. Ya puedes darle Run en Kaggle.`);
+
+                } catch (err) {
+
+                    alert("Error: " + err);
+
+                }
+
+            }
+
+        };
+
+
+
+        // Botón de emergencia: devuelve a "pendiente" cualquier tarea de este slot
+
+        // que haya quedado atascada en "procesando" (por ejemplo si Kaggle murió
+
+        // a mitad de una tarea).
+
+        window.reencolarTareaAtascada = async function(slot) {
+
+            if (confirm(`¿Devolver la tarea atascada del Slot ${slot} a la fila de pendientes?`)) {
+
+                try {
+
+                    const snap = await get(ref(db, "tareas_ia"));
+
+                    const actualizaciones = [];
+
+                    let reencolada = false;
+
+                    if (snap.exists()) {
+
+                        snap.forEach(hijo => {
+
+                            const val = hijo.val();
+
+                            if (String(val.slot) === String(slot) && val.estado === 'procesando') {
+
+                                actualizaciones.push(update(ref(db, `tareas_ia/${hijo.key}`), { estado: 'pendiente' }));
+
+                                reencolada = true;
+
+                            }
+
+                        });
+
+                    }
+
+                    await Promise.all(actualizaciones);
+
+                    if (reencolada) alert('✅ Tarea rescatada y reencolada con éxito.');
+
+                    else alert('ℹ️ No se encontraron tareas procesando en este slot.');
+
+                } catch (err) {
+
+                    alert("Error: " + err);
+
+                }
+
+            }
+
+        };
+
+
+
+        window.cargarImagenEnLienzo = async function(slot, urlReal, driveId, urlThumbnail, tareaId = null) {
+
+            const txtEstado = el("estado", slot);
+
+            txtEstado.innerText = "Transfiriendo imagen ORIGINAL al panel...";
+
+            txtEstado.classList.remove("hidden");
+
+            try {
+
+                const ov = (tareaId && estado[slot].coloresLocales[tareaId]) ? estado[slot].coloresLocales[tareaId].limpia : null;
+                let fuente = ov;
+                // Sin color local: bytes originales por Apps Script; respaldo: urlReal (NUNCA la miniatura) con q=100
+                if (!fuente) fuente = await descargarOriginalDrive(driveId, slot);
+                if (!fuente) fuente = "https://wsrv.nl/?url=" + encodeURIComponent(urlReal) + "&output=jpg&q=100";
+
+                const response = await fetch(fuente);
+
+                if (!response.ok) throw new Error("Fallo en la transferencia");
+
+                const blob = await response.blob();
+
+                const file = new File([blob], "imagen_editada.jpg", { type: "image/jpeg" });
+
+                const dataTransfer = new DataTransfer();
+
+                dataTransfer.items.add(file);
+
+                el("archivo", slot).files = dataTransfer.files;
+
+                estado[slot].cargandoDesdeHistorial = !ov; // con color local la imagen no está en la nube: se sube como nueva
+                estado[slot].imagenCargadaUrl = ov ? null : urlReal;
+                estado[slot].imagenCargadaId = ov ? null : (driveId || "");
+
+                el("archivo", slot).dispatchEvent(new Event('change'));
+                estado[slot].tareaActivaId = tareaId;
+
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            } catch (error) {
+
+                alert("Drive bloqueó la red. Por favor, mantén presionada la imagen, guárdala y súbela desde tu galería.");
+
+            } finally {
+
+                txtEstado.classList.add("hidden");
+
+            }
+
+        };
+
+
+
+        // ==========================================
+
+        // 3. ENCENDIDO/APAGADO DE SERVIDOR + PROGRESO REAL
+
+        //    El progreso se lee en vivo desde Firestore:
+
+        //    servidores/slot_{n}, documento que el propio
+
+        //    notebook de Kaggle actualiza en cada paso de sus logs
+
+        //    (incluye un "latido" cada 10s aunque no haya tareas).
+
+        // ==========================================
+
+
+
+        // Pinta la barra/estado de un slot a partir de los últimos datos conocidos.
+
+        // Se llama tanto cuando llega un snapshot nuevo como periódicamente,
+
+        // para poder detectar "se dejó de recibir señal" sin esperar un cambio en Firestore.
+
+        function pintarEstadoServidor(slot, datos) {
+
+            const contenedorCarga = el("contenedorCarga", slot);
+
+            const barraCarga = el("barraCarga", slot);
+
+            const porcentajeCarga = el("porcentajeCarga", slot);
+
+            const textoCarga = el("textoCarga", slot);
+
+            const btnArrancar = el("btnPrender", slot);
+
+
+
+            contenedorCarga.classList.remove("hidden");
+
+
+
+            const progreso = Math.max(0, Math.min(100, Number(datos.progreso) || 0));
+
+            barraCarga.style.width = `${progreso}%`;
+
+            porcentajeCarga.innerText = `${progreso}%`;
+
+
+
+            const ultimaMarca = estado[slot].ultimoServidorMillis || Date.now();
+
+            const haceMs = Date.now() - ultimaMarca;
+
+            const seguiaActivo = ['escuchando', 'procesando', 'iniciando'].includes(datos.estado);
+
+            const sinSeñal = seguiaActivo && haceMs > UMBRAL_INACTIVIDAD_MS;
+
+
+
+            let mensaje = datos.mensaje || '';
+
+            if (sinSeñal) {
+
+                mensaje = `⚫ Sin señal hace ${Math.round(haceMs / 1000)}s (puede que el notebook se haya detenido) · último mensaje: ${mensaje}`;
+
+            }
+
+            textoCarga.innerText = mensaje;
+
+
+
+            textoCarga.classList.remove("animate-pulse", "text-blue-400", "text-green-400", "text-red-400", "text-gray-400");
+
+            if (sinSeñal) {
+
+                textoCarga.classList.add("text-gray-400");
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            } else if (datos.estado === 'escuchando') {
+
+                textoCarga.classList.add("text-green-400");
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            } else if (datos.estado === 'error') {
+
+                textoCarga.classList.add("text-red-400");
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            } else if (datos.estado === 'apagado') {
+
+                textoCarga.classList.add("text-gray-400");
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            } else {
+
+                // iniciando / procesando: pulso azul con el progreso real
+
+                textoCarga.classList.add("animate-pulse", "text-blue-400");
+
+                btnArrancar.disabled = true;
+
+                btnArrancar.classList.add('opacity-50', 'cursor-not-allowed');
+
+            }
+
+        }
+
+
+
+        // Confirmación en DOS pasos para encender un servidor duplicado.
+
+        // A propósito NO usa confirm() nativo: en celular, el botón "Aceptar"
+
+        // del confirm nativo a veces queda debajo del dedo justo después de
+
+        // tocar "Iniciar Servidor", y un toque accidental lo confirma solo.
+
+        // Acá el botón cambia de texto/color y hay que tocarlo DE NUEVO
+
+        // dentro de 6 segundos, si no se cancela solo.
+
+        function confirmarEncenderDuplicado(slot, segundos, estadoActual) {
+
+            return new Promise((resolve) => {
+
+                const btnOriginal = el("btnPrender", slot);
+
+                const textoOriginal = btnOriginal.innerText;
+
+                const claseOriginal = btnOriginal.className;
+
+
+
+                // Clonamos el botón: esto QUITA el listener original de
+
+                // "click" (el que llama a prenderServidor normal), así el
+
+                // próximo toque SOLO puede disparar la confirmación, nunca
+
+                // los dos a la vez.
+
+                const btnConfirmacion = btnOriginal.cloneNode(true);
+
+                btnConfirmacion.innerText = `⚠️ Ya hay uno activo (hace ${segundos}s). Tocá de nuevo para confirmar`;
+
+                btnConfirmacion.className = claseOriginal.replace('bg-green-900', 'bg-orange-600').replace('hover:bg-green-800', 'hover:bg-orange-500');
+
+                btnOriginal.parentNode.replaceChild(btnConfirmacion, btnOriginal);
+
+
+
+                let resuelto = false;
+
+                const restaurarBotonNormal = () => {
+
+                    const btnNuevoNormal = btnConfirmacion.cloneNode(true);
+
+                    btnNuevoNormal.innerText = textoOriginal;
+
+                    btnNuevoNormal.className = claseOriginal;
+
+                    btnConfirmacion.parentNode.replaceChild(btnNuevoNormal, btnConfirmacion);
+
+                    btnNuevoNormal.addEventListener("click", () => prenderServidor(slot));
+
+                };
+
+
+
+                btnConfirmacion.addEventListener("click", () => {
+
+                    if (resuelto) return;
+
+                    resuelto = true;
+
+                    clearTimeout(temporizador);
+
+                    restaurarBotonNormal();
+
+                    resolve(true);
+
+                }, { once: true });
+
+
+
+                const temporizador = setTimeout(() => {
+
+                    if (resuelto) return;
+
+                    resuelto = true;
+
+                    restaurarBotonNormal();
+
+                    resolve(false);
+
+                }, 6000);
+
+            });
+
+        }
+
+
+
+        window.prenderServidor = async function(slot, forzar = false) {
+
+            const refServidor = ref(db, `servidores/slot_${slot}`);
+
+
+
+            // Guardia anti-duplicados: si ya hay una señal reciente y viva,
+
+            // confirmamos antes de lanzar OTRO notebook en Kaggle.
+
+            if (!forzar) {
+
+                try {
+
+                    const snap = await get(refServidor);
+
+                    if (snap.exists()) {
+
+                        const datos = snap.val();
+
+                        const haceMs = datos.actualizado ? (Date.now() - datos.actualizado) : Infinity;
+
+                        const activo = haceMs < UMBRAL_INACTIVIDAD_MS && ['escuchando', 'procesando', 'iniciando'].includes(datos.estado);
+
+                        if (activo) {
+
+                            const segundos = Math.round(haceMs / 1000);
+
+                            const confirmado = await confirmarEncenderDuplicado(slot, segundos, datos.estado);
+
+                            if (!confirmado) return;
+
+                        }
+
+                    }
+
+                } catch (err) {
+
+                    // si falla la lectura previa, no bloqueamos el encendido
+
+                }
+
+            }
+
+
+
+            const btnArrancar = el("btnPrender", slot);
+
+            btnArrancar.disabled = true;
+
+            btnArrancar.classList.add('opacity-50', 'cursor-not-allowed');
+
+
+
+            const contenedorCarga = el("contenedorCarga", slot);
+
+            const barraCarga = el("barraCarga", slot);
+
+            const porcentajeCarga = el("porcentajeCarga", slot);
+
+            const textoCarga = el("textoCarga", slot);
+
+
+
+            contenedorCarga.classList.remove("hidden");
+
+            barraCarga.style.width = "2%";
+
+            porcentajeCarga.innerText = "2%";
+
+            textoCarga.innerText = "🚀 Enviando orden a Kaggle...";
+
+            textoCarga.className = "text-xs text-blue-400 font-bold animate-pulse";
+
+
+
+            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+
+            if (!urlWebHook) {
+
+                alert(`Configura la URL de Apps Script de la Pestaña ${slot} primero en '⚙️ Configurar URL'.`);
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+                return;
+
+            }
+
+
+
+            try {
+
+                // Reseteamos el documento ANTES de avisarle a Kaggle: así nunca
+
+                // se ve el estado "listo" de una sesión vieja mientras el
+
+                // notebook nuevo todavía está instalando cosas.
+
+                estado[slot].ultimoServidorMillis = Date.now();
+
+                await set(refServidor, {
+
+                    estado: 'iniciando',
+
+                    progreso: 2,
+
+                    mensaje: '🚀 Orden enviada. Esperando que Kaggle arranque el notebook (puede tardar 1-3 min en llegar la primera señal real)...',
+
+                    tarea_actual: null,
+
+                    sesion: null,
+
+                    actualizado: serverTimestamp()
+
+                });
+
+
+
+                fetch(urlWebHook + "?tipo=cpu&slot=" + slot, { mode: 'no-cors' });
+
+                // La escucha del progreso ya está activa desde que se abrió la pestaña
+
+                // (ver inicializarPanel), así que no hace falta re-suscribirse aquí.
+
+            } catch (error) {
+
+                textoCarga.innerText = "❌ Error de conexión";
+
+                btnArrancar.disabled = false;
+
+                btnArrancar.classList.remove('opacity-50', 'cursor-not-allowed');
+
+            }
+
+        };
+
+
+
+        window.apagarServidor = async function(slot) {
+
+            if (!confirm(`¿Seguro que quieres apagar el servidor de la Pestaña ${slot}?`)) return;
+
+            try {
+
+                await set(push(ref(db, "tareas_ia")), { estado: "pendiente", comando: "apagar_servidor", slot: String(slot), fecha: new Date().toISOString() });
+
+                alert(`Orden de apagado encolada para la Pestaña ${slot}. El servidor se detendrá pronto.`);
+
+            } catch (error) {
+
+                alert("Error enviando orden de apagado.");
+
+            }
+
+        };
+
+
+
+        // ==========================================
+
+        // 4. HISTORIAL (independiente por slot)
+
+        // ==========================================
+
+        function urlMiniatura(u) {
+            if (!u) return "";
+            if (u.startsWith("data:")) return u;
+            const m = u.match(/[?&]id=([^&]+)/);
+            return m ? `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000` : u;
+        }
+
+        function renderizarHistorial(slot) {
+
+            const contenedor = el("contenedorHistorial", slot);
+
+            contenedor.innerHTML = "";
+
+            estado[slot].historialTareas.forEach(tarea => {
+
+                let colorEstado = tarea.estado === 'completado' ? 'text-green-400' : (tarea.estado === 'error' ? 'text-red-500' : 'text-yellow-400');
+
+                let htmlImg = "";
+
+                let botonesAccion = "";
+
+
+
+                if (tarea.estado === 'completado') {
+
+                    if (tarea.urlResultado) {
+
+                        const ov = (estado[slot].coloresLocales || {})[tarea.id] || {};
+                        let urlVisualizacion = urlMiniatura(tarea.urlResultado);
+                        const srcLimpia = ov.limpia || urlVisualizacion;
+                        const hrefLimpia = ov.limpia || tarea.urlResultado;
+                        const attrDescarga = ov.limpia ? `download="color_${tarea.id.slice(0,6)}.jpg"` : 'target="_blank"';
+                        if (tarea.urlResultadoMalla) {
+                            const srcMalla = ov.malla || urlMiniatura(tarea.urlResultadoMalla);
+                            const hrefMalla = ov.malla || tarea.urlResultadoMalla;
+                            const attrDescargaM = ov.malla ? `download="color_malla_${tarea.id.slice(0,6)}.jpg"` : 'target="_blank"';
+                            htmlImg = `
+                            <div class="grid grid-cols-2 gap-2 mt-2">
+                                <a href="${hrefLimpia}" ${attrDescarga}>
+                                    <div class="text-[10px] text-center text-gray-400 mb-1">Corte Original${ov.limpia ? ' 🎨' : ''}</div>
+                                    <img src="${srcLimpia}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
+                                </a>
+                                <a href="${hrefMalla}" ${attrDescargaM}>
+                                    <div class="text-[10px] text-center text-gray-400 mb-1">Con Malla${ov.malla ? ' 🎨' : ''}</div>
+                                    <img src="${srcMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
+                                </a>
+                            </div>`;
+                        } else {
+                            htmlImg = `<a href="${hrefLimpia}" ${attrDescarga}><img src="${srcLimpia}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
+                        }
+                        botonesAccion = `
+
+                        <div class="flex gap-2 mt-3">
+
+                            <button onclick="cargarImagenEnLienzo(${slot}, '${tarea.urlResultado}', '${tarea.driveId || ''}', '${urlVisualizacion}', '${tarea.id}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
+
+                            <button onclick="eliminarTarea(${slot}, '${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
+
+                        </div>`;
+
+                    }
+
+                } else {
+
+                    htmlImg = `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
+
+                    botonesAccion = `
+
+                    <div class="flex gap-2 mt-3">
+
+                        <button onclick="eliminarTarea(${slot}, '${tarea.id}')" class="w-full bg-red-900 hover:bg-red-800 text-xs text-white py-2 rounded font-bold shadow">🗑️ Eliminar</button>
+
+                    </div>`;
+
+                }
+
+
+
+                contenedor.innerHTML += `
+
+                    <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 shadow relative">
+
+                        <div class="flex justify-between items-start">
+
+                            <div>
+
+                                <p class="text-[10px] text-gray-400">ID: ${tarea.id.slice(0,6)}</p>
+
+                                <p class="text-sm font-bold text-white capitalize">${tarea.comando.replace(/_/g, ' ')}</p>
+
+                            </div>
+
+                            <span class="text-xs font-bold ${colorEstado} uppercase bg-gray-800 px-2 py-1 rounded border border-gray-700">${tarea.estado}</span>
+
+                        </div>
+
+                        ${htmlImg}
+
+                        ${botonesAccion}
+
+                    </div>
+
+                `;
+
+            });
+
+        }
+
+
+
+        function reconectarPendientes(slot) {
+
+            estado[slot].historialTareas.forEach((tarea, index) => {
+
+                if (tarea.estado === 'pendiente' || tarea.estado === 'procesando') {
+
+                    const unsubscribe = onValue(ref(db, `tareas_ia/${tarea.id}`), (documento) => {
+
+                        const datos = documento.val();
+
+                        if (datos && (datos.estado === "completado" || datos.estado === "error")) {
+
+                            estado[slot].historialTareas[index].estado = datos.estado;
+
+                            if (datos.estado === "completado") {
+
+                                estado[slot].historialTareas[index].urlResultado = datos.url_resultado;
+
+                                estado[slot].historialTareas[index].driveId = datos.drive_id;
+
+                                if (datos.url_resultado_malla) {
+
+                                    estado[slot].historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
+
+                                    estado[slot].historialTareas[index].driveIdMalla = datos.drive_id_malla;
+
+                                }
+
+                                // Si la tarea era "cortar sin fondo", guardamos su resultado
+
+                                // (PNG transparente) para poder probar fondos rápido después.
+
+                                if (estado[slot].historialTareas[index].comando === "cortar_sin_fondo" && datos.url_resultado) {
+
+                                    estado[slot].urlSinFondo = datos.url_resultado;
+
+                                    estado[slot].idSinFondo = datos.drive_id;
+
+                                    el("probadorFondos", slot).classList.remove("hidden");
+
+                                }
+
+                            }
+
+                            guardarEnLocalStorage(slot);
+
+                            unsubscribe();
+
+                        } else if (datos) {
+
+                            estado[slot].historialTareas[index].estado = datos.estado;
+
+                            guardarEnLocalStorage(slot);
+
+                        }
+
+                    });
+
+                }
+
+            });
+
+        }
+
+
+
+        // ==========================================
+
+        // 5. INICIALIZACIÓN DE CADA PANEL (lienzo, cropper, envío)
+
+        // ==========================================
+
+        // ==========================================================
+        // ESTUDIO DE FONDOS (halo radial + textura + exportación)
+        // ==========================================================
+        let imagenFondoSubida = null;
+        let renderFondoPendiente = false;
+
+        function ajustarBrilloHex(hex, porcentaje) {
+            const num = parseInt(hex.replace("#", ""), 16);
+            const d = Math.round(2.55 * porcentaje);
+            const r = Math.min(255, Math.max(0, ((num >> 16) & 0xff) + d));
+            const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + d));
+            const b = Math.min(255, Math.max(0, (num & 0xff) + d));
+            return `rgb(${r}, ${g}, ${b})`;
+        }
+
+        function programarRenderFondo() {
+            if (renderFondoPendiente) return;
+            renderFondoPendiente = true;
+            requestAnimationFrame(() => { renderFondoPendiente = false; renderizarFondoCustom(); });
+        }
+
+        function renderizarFondoCustom() {
+            const canvas = document.getElementById("canvasFondoCustom");
+            if (!canvas) return;
+            const ctx = canvas.getContext("2d");
+            const W = canvas.width, H = canvas.height;
+            const estilo = document.getElementById("estiloFondoCustom").value;
+
+            if (estilo === "imagen_subida" && imagenFondoSubida) {
+                // "cover": llena el lienzo sin deformar la imagen
+                const iw = imagenFondoSubida.naturalWidth, ih = imagenFondoSubida.naturalHeight;
+                const esc = Math.max(W / iw, H / ih);
+                const dw = iw * esc, dh = ih * esc;
+                ctx.drawImage(imagenFondoSubida, (W - dw) / 2, (H - dh) / 2, dw, dh);
+                return;
+            }
+
+            const hexBase = document.getElementById("colorBaseFondo").value;
+            const auto = document.getElementById("autoColorCentro").checked;
+            const luz = parseInt(document.getElementById("sliderLuzCentro").value, 10);
+            const osc = parseInt(document.getElementById("sliderOscuridadBorde").value, 10);
+            const radioPct = parseInt(document.getElementById("sliderRadioHalo").value, 10) / 100;
+            const granoPct = parseInt(document.getElementById("sliderTexturaFondo").value, 10);
+
+            document.getElementById("valLuzCentro").innerText = `${luz}%`;
+            document.getElementById("valOscuridadBorde").innerText = `${osc}%`;
+            document.getElementById("valRadioHalo").innerText = `${Math.round(radioPct * 100)}%`;
+            document.getElementById("valTexturaFondo").innerText = `${granoPct}%`;
+            document.getElementById("selectorManualExtremos").classList.toggle("hidden", auto);
+            document.getElementById("selectorManualExtremos").classList.toggle("flex", !auto);
+
+            const colCentro = auto ? ajustarBrilloHex(hexBase, luz) : document.getElementById("colorCentroManual").value;
+            const colMedio = hexBase;
+            const colBorde = auto ? ajustarBrilloHex(hexBase, -osc) : document.getElementById("colorBordeManual").value;
+
+            const cy = estilo === "halo_retrato" ? H * 0.36 : H * 0.48;
+            const cx = W * 0.5;
+            const maxR = Math.hypot(W, H) * 0.65 * radioPct;
+
+            const grad = ctx.createRadialGradient(cx, cy, W * 0.04, cx, cy, maxR);
+            if (estilo === "vineta_profunda") {
+                grad.addColorStop(0, colCentro);
+                grad.addColorStop(0.45, colMedio);
+                grad.addColorStop(1, ajustarBrilloHex(hexBase, -Math.min(95, osc + 25)));
+            } else if (estilo === "halo_suave") {
+                grad.addColorStop(0, colCentro);
+                grad.addColorStop(0.75, colMedio);
+                grad.addColorStop(1, colBorde);
+            } else if (estilo === "luz_diamante") {
+                grad.addColorStop(0, colCentro);
+                grad.addColorStop(0.35, colCentro);
+                grad.addColorStop(0.7, colMedio);
+                grad.addColorStop(1, colBorde);
+            } else {
+                grad.addColorStop(0, colCentro);
+                grad.addColorStop(0.55, colMedio);
+                grad.addColorStop(1, colBorde);
+            }
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, W, H);
+
+            const gradAro = ctx.createRadialGradient(cx, cy, maxR * 0.5, cx, cy, Math.hypot(W, H) * 0.6);
+            gradAro.addColorStop(0, "rgba(0,0,0,0)");
+            gradAro.addColorStop(1, `rgba(0,0,0,${(osc / 180).toFixed(2)})`);
+            ctx.fillStyle = gradAro;
+            ctx.fillRect(0, 0, W, H);
+
+            if (granoPct > 0) {
+                const imgData = ctx.getImageData(0, 0, W, H);
+                const d = imgData.data;
+                const amp = granoPct * 0.6;
+                for (let i = 0; i < d.length; i += 4) {
+                    const ruido = (Math.random() - 0.5) * amp;
+                    d[i] = Math.min(255, Math.max(0, d[i] + ruido));
+                    d[i + 1] = Math.min(255, Math.max(0, d[i + 1] + ruido));
+                    d[i + 2] = Math.min(255, Math.max(0, d[i + 2] + ruido));
+                }
+                ctx.putImageData(imgData, 0, 0);
+            }
+        }
+
+        function obtenerBlobFondoCustom() {
+            return new Promise((resolve, reject) => {
+                const canvas = document.getElementById("canvasFondoCustom");
+                canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error("No se pudo exportar el fondo")), "image/jpeg", 0.95);
+            });
+        }
+
+        ["estiloFondoCustom", "colorBaseFondo", "autoColorCentro", "colorCentroManual", "colorBordeManual",
+         "sliderLuzCentro", "sliderOscuridadBorde", "sliderRadioHalo", "sliderTexturaFondo"].forEach(id => {
+            const elem = document.getElementById(id);
+            if (elem) { elem.addEventListener("input", programarRenderFondo); elem.addEventListener("change", programarRenderFondo); }
+        });
+
+        document.getElementById("archivoFondoPropio")?.addEventListener("change", (e) => {
+            const f = e.target.files[0];
+            if (!f) return;
+            const img = new Image();
+            img.onload = () => {
+                imagenFondoSubida = img;
+                document.getElementById("estiloFondoCustom").value = "imagen_subida";
+                renderizarFondoCustom();
+            };
+            img.src = URL.createObjectURL(f);
+        });
+
+        document.getElementById("btnExportarFondo")?.addEventListener("click", () => {
+            const canvas = document.getElementById("canvasFondoCustom");
+            const link = document.createElement("a");
+            link.download = `fondo_estudio_${Date.now()}.jpg`;
+            link.href = canvas.toDataURL("image/jpeg", 0.98);
+            link.click();
+        });
+
+        renderizarFondoCustom();
+
+        // ==========================================================
+        // MOTOR DE COLOR EN EL NAVEGADOR (sin servidor)
+        // Usa ctx.filter si el navegador lo soporta; si no (p. ej. Safari/iOS), aplica las mismas matrices por píxel.
+        // ==========================================================
+        function leerParamsColor(slot) {
+            return {
+                temp: parseInt(el("sliderTemp", slot).value || 0, 10),
+                sat: parseInt(el("sliderSat", slot).value || 0, 10),
+                lum: parseInt(el("sliderLum", slot).value || 0, 10)
+            };
+        }
+
+        function filtroCSSDesdeParams(p) {
+            let f = `saturate(${100 + p.sat}%) brightness(${100 + p.lum}%)`;
+            if (p.temp > 0) f += ` sepia(${p.temp}%) hue-rotate(-${p.temp / 2}deg)`;
+            if (p.temp < 0) f += ` hue-rotate(${Math.abs(p.temp)}deg)`;
+            return f;
+        }
+
+        let _soportaFiltroCanvas = null;
+        function soportaFiltroCanvas() {
+            if (_soportaFiltroCanvas !== null) return _soportaFiltroCanvas;
+            try {
+                const c = document.createElement("canvas"); c.width = c.height = 1;
+                const x = c.getContext("2d");
+                if (!("filter" in x)) return (_soportaFiltroCanvas = false);
+                x.filter = "grayscale(100%)";
+                x.fillStyle = "rgb(255,0,0)";
+                x.fillRect(0, 0, 1, 1);
+                const d = x.getImageData(0, 0, 1, 1).data;
+                _soportaFiltroCanvas = Math.abs(d[0] - d[1]) < 8;   // si quedó gris, el filtro funciona
+            } catch (e) { _soportaFiltroCanvas = false; }
+            return _soportaFiltroCanvas;
+        }
+
+        function _mulMat(A, B) {
+            const R = [];
+            for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++)
+                R[i * 3 + j] = A[i * 3] * B[j] + A[i * 3 + 1] * B[3 + j] + A[i * 3 + 2] * B[6 + j];
+            return R;
+        }
+
+        function matrizColorDesdeParams(p) {
+            const s = (100 + p.sat) / 100, b = (100 + p.lum) / 100;
+            const a = Math.min(1, Math.max(0, Math.max(0, p.temp) / 100));
+            const deg = p.temp > 0 ? -p.temp / 2 : (p.temp < 0 ? Math.abs(p.temp) : 0);
+            const th = deg * Math.PI / 180, c = Math.cos(th), n = Math.sin(th);
+            const SAT = [0.213 + 0.787 * s, 0.715 - 0.715 * s, 0.072 - 0.072 * s,
+                         0.213 - 0.213 * s, 0.715 + 0.285 * s, 0.072 - 0.072 * s,
+                         0.213 - 0.213 * s, 0.715 - 0.715 * s, 0.072 + 0.928 * s];
+            const BRI = [b, 0, 0, 0, b, 0, 0, 0, b];
+            const k = 1 - a;
+            const SEP = [0.393 + 0.607 * k, 0.769 - 0.769 * k, 0.189 - 0.189 * k,
+                         0.349 - 0.349 * k, 0.686 + 0.314 * k, 0.168 - 0.168 * k,
+                         0.272 - 0.272 * k, 0.534 - 0.534 * k, 0.131 + 0.869 * k];
+            const HUE = [0.213 + c * 0.787 - n * 0.213, 0.715 - c * 0.715 - n * 0.715, 0.072 - c * 0.072 + n * 0.928,
+                         0.213 - c * 0.213 + n * 0.143, 0.715 + c * 0.285 + n * 0.140, 0.072 - c * 0.072 - n * 0.283,
+                         0.213 - c * 0.213 - n * 0.787, 0.715 - c * 0.715 + n * 0.715, 0.072 + c * 0.928 + n * 0.072];
+            return _mulMat(HUE, _mulMat(SEP, _mulMat(BRI, SAT)));
+        }
+
+        async function descargarOriginalDrive(driveId, slot) {
+            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+            if (!driveId || driveId === "undefined" || !urlWebHook) return null;
+            try {
+                const r = await fetch(`${urlWebHook}?action=download&fileId=${encodeURIComponent(driveId)}`);
+                const j = await r.json();
+                if (j && j.success && j.base64) return `data:image/jpeg;base64,${j.base64}`;
+            } catch (e) { console.warn("Descarga directa por Apps Script falló, usando respaldo:", e); }
+            return null;
+        }
+
+        async function cargarImagenParaCanvas(url, driveId = "", slot = 1) {
+            let src = url;
+            if (!url.startsWith("data:") && !url.startsWith("blob:")) {
+                src = await descargarOriginalDrive(driveId, slot);
+                if (!src) src = "https://wsrv.nl/?url=" + encodeURIComponent(url) + "&output=jpg&q=100";
+            }
+            const img = new Image();
+            img.crossOrigin = "anonymous";
+            img.src = src;
+            await img.decode();
+            return img;
+        }
+
+        async function aplicarColorAUrl(urlImagen, params, driveId = "", slot = 1) {
+            const img = await cargarImagenParaCanvas(urlImagen, driveId, slot);
+            const c = document.createElement("canvas");
+            c.width = img.naturalWidth; c.height = img.naturalHeight;
+            const ctx = c.getContext("2d");
+            if (soportaFiltroCanvas()) {
+                ctx.filter = filtroCSSDesdeParams(params);
+                ctx.drawImage(img, 0, 0, c.width, c.height);
+            } else {
+                ctx.drawImage(img, 0, 0, c.width, c.height);
+                const id = ctx.getImageData(0, 0, c.width, c.height);
+                const d = id.data, m = matrizColorDesdeParams(params);
+                for (let i = 0; i < d.length; i += 4) {
+                    const r = d[i], g = d[i + 1], bl = d[i + 2];
+                    d[i]     = Math.min(255, Math.max(0, m[0] * r + m[1] * g + m[2] * bl));
+                    d[i + 1] = Math.min(255, Math.max(0, m[3] * r + m[4] * g + m[5] * bl));
+                    d[i + 2] = Math.min(255, Math.max(0, m[6] * r + m[7] * g + m[8] * bl));
+                }
+                ctx.putImageData(id, 0, 0);
+            }
+            return c.toDataURL("image/jpeg", 1.0);
+        }
+
+        function inicializarPanel(slot) {
+
+            renderizarHistorial(slot);
+
+            reconectarPendientes(slot);
+
+
+
+            el("fidelidadIA", slot).addEventListener("input", function() {
+
+                el("valorFidelidad", slot).innerText = this.value;
+
+            });
+
+
+
+            // -------- Retoque manual de piel: vista previa en vivo --------
+            const chkRetoque = el("activarRetoquePiel", slot);
+            const panelRetoque = el("panelRetoquePiel", slot);
+            const sTemp = el("sliderTemp", slot), sSat = el("sliderSat", slot), sLum = el("sliderLum", slot);
+            function actualizarVistaPreviaColor() {
+                const img = el("imgFondo", slot);
+                if (!chkRetoque.checked) {
+                    panelRetoque.classList.add("hidden");
+                    panelRetoque.classList.remove("flex");
+                    img.style.filter = "none";
+                    return;
+                }
+                panelRetoque.classList.remove("hidden");
+                panelRetoque.classList.add("flex");
+                el("valTemp", slot).innerText = sTemp.value;
+                el("valSat", slot).innerText = sSat.value;
+                el("valLum", slot).innerText = sLum.value;
+                const sat = 100 + parseInt(sSat.value), lum = 100 + parseInt(sLum.value), temp = parseInt(sTemp.value);
+                let filter = `saturate(${sat}%) brightness(${lum}%)`;
+                if (temp > 0) filter += ` sepia(${temp}%) hue-rotate(-${temp / 2}deg)`;
+                if (temp < 0) filter += ` hue-rotate(${Math.abs(temp)}deg)`;
+                img.style.filter = filter;
+            }
+            [chkRetoque, sTemp, sSat, sLum].forEach(c => c.addEventListener(c === chkRetoque ? "change" : "input", actualizarVistaPreviaColor));
+
+            // -------- Color local (sin servidor): descargar / aplicar a imagen + malla --------
+            el("btnDescargarLienzoColor", slot).addEventListener("click", async () => {
+                if (!estado[slot].urlOriginalImagen) return alert("Primero carga una imagen en el panel.");
+                try {
+                    const dataUrl = await aplicarColorAUrl(estado[slot].urlOriginalImagen, leerParamsColor(slot));
+                    const a = document.createElement("a");
+                    a.download = `editada_color_${Date.now()}.jpg`;
+                    a.href = dataUrl;
+                    a.click();
+                } catch (e) { alert("No se pudo generar la imagen: " + e.message); }
+            });
+
+            el("btnAplicarColorLocal", slot).addEventListener("click", async () => {
+                if (!estado[slot].urlOriginalImagen) return alert("Primero carga una imagen en el panel.");
+                const params = leerParamsColor(slot);
+                if (params.temp === 0 && params.sat === 0 && params.lum === 0) return alert("Mueve alguna barra antes de aplicar.");
+                const btn = el("btnAplicarColorLocal", slot);
+                const textoOriginal = btn.innerText;
+                btn.disabled = true;
+                btn.innerText = "⏳ Aplicando color...";
+                try {
+                    // 1) Imagen del panel: el color queda dentro del archivo que se enviará al servidor
+                    const nuevaBase = await aplicarColorAUrl(estado[slot].urlOriginalImagen, params);
+                    const blob = await (await fetch(nuevaBase)).blob();
+                    const dt = new DataTransfer();
+                    dt.items.add(new File([blob], "imagen_color.jpg", { type: "image/jpeg" }));
+                    el("archivo", slot).files = dt.files;
+                    estado[slot].archivoModificado = true;
+                    estado[slot].cargandoDesdeHistorial = false;
+                    estado[slot].imagenCargadaUrl = null;
+                    estado[slot].imagenCargadaId = null;
+                    estado[slot].urlOriginalImagen = nuevaBase;
+                    const imgF = el("imgFondo", slot);
+                    imgF.style.filter = "none";
+                    if (estado[slot].cropperInstance) estado[slot].cropperInstance.replace(nuevaBase);
+                    else imgF.src = nuevaBase;
+
+                    // 2) Tarjeta del historial de la que viene la foto: versión limpia + versión con malla
+                    const idTarea = estado[slot].tareaActivaId;
+                    const t = idTarea ? estado[slot].historialTareas.find(x => x.id === idTarea) : null;
+                    if (t) {
+                        const previo = estado[slot].coloresLocales[idTarea] || {};
+                        const nuevo = { ...previo };
+                        nuevo.limpia = await aplicarColorAUrl(previo.limpia || t.urlResultado, params, previo.limpia ? "" : (t.driveId || ""), slot);
+                        if (t.urlResultadoMalla) nuevo.malla = await aplicarColorAUrl(previo.malla || t.urlResultadoMalla, params, previo.malla ? "" : (t.driveIdMalla || ""), slot);
+                        estado[slot].coloresLocales[idTarea] = nuevo;
+                        renderizarHistorial(slot);
+                    }
+
+                    // 3) El color ya está horneado: barras a 0
+                    sTemp.value = 0; sSat.value = 0; sLum.value = 0;
+                    actualizarVistaPreviaColor();
+                    alert(t ? "✅ Color aplicado a la imagen del panel y a la tarjeta del historial (limpia y con malla)."
+                            : "✅ Color aplicado a la imagen del panel. Se enviará con este color al servidor.");
+                } catch (e) {
+                    alert("Error aplicando el color: " + e.message);
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = textoOriginal;
+                }
+            });
+            el("fuerzaNaranja", slot).addEventListener("input", function() {
+
+                el("valorFuerzaNaranja", slot).innerText = this.value;
+
+            });
+
+
+
+            el("btnPrender", slot).addEventListener("click", () => prenderServidor(slot));
+
+            el("btnApagar", slot).addEventListener("click", () => apagarServidor(slot));
+
+            el("btnInterrumpir", slot).addEventListener("click", async () => {
+                if (!confirm(`¿Seguro que quieres interrumpir el proceso que se está ejecutando en la Pestaña ${slot}? El servidor quedará libre para nuevas tareas sin apagarlo.`)) return;
+                try {
+                    await update(ref(db, `servidores/slot_${slot}`), { interrumpir: true });
+                    alert("Orden de interrupción enviada. El proceso se detendrá en unos segundos.");
+                } catch (error) {
+                    alert("Error enviando orden de interrupción: " + error);
+                }
+            });
+
+
+
+            // -------- Escucha permanente del estado real del servidor --------
+
+            // Se conecta desde que se abre la pestaña (no solo al apretar "Encender"),
+
+            // para que nunca se desincronice si salís y volvés a entrar al panel.
+
+            const refServidor = ref(db, `servidores/slot_${slot}`);
+
+            estado[slot].unsubServidor = onValue(refServidor, (snap) => {
+
+                if (!snap.exists()) return;
+
+                const datos = snap.val();
+
+                estado[slot].ultimoServidorDatos = datos;
+
+                estado[slot].ultimoServidorMillis = datos.actualizado || Date.now();
+
+                pintarEstadoServidor(slot, datos);
+
+            });
+
+
+
+            // Revisa cada 5s si dejó de llegar señal (latido), aunque RTDB
+
+            // no dispare un evento nuevo (el notebook pudo simplemente caerse).
+
+            setInterval(() => {
+
+                if (estado[slot].ultimoServidorDatos) pintarEstadoServidor(slot, estado[slot].ultimoServidorDatos);
+
+            }, 5000);
+
+
+
+            // -------- Lienzo y Cropper (recorte manual) --------
+
+            const inputArchivo = el("archivo", slot);
+
+            const contenedorLienzo = el("contenedorLienzo", slot);
+
+            const controlesPincel = el("controlesPincel", slot);
+
+            const controlesEdicion = el("controlesEdicion", slot);
+
+            const imgFondo = el("imgFondo", slot);
+
+            const canvas = el("lienzoDibujo", slot);
+
+            const ctx = canvas.getContext("2d");
+
+            const grosorPincel = el("grosorPincel", slot);
+
+
+
+            inputArchivo.addEventListener("change", (e) => {
+
+                const file = e.target.files[0];
+
+                if (!file) return;
+
+                if (estado[slot].cargandoDesdeHistorial) {
+                    estado[slot].cargandoDesdeHistorial = false;
+                    estado[slot].archivoModificado = false;
+                } else {
+                    estado[slot].archivoModificado = true;
+                    estado[slot].imagenCargadaUrl = null;
+                    estado[slot].imagenCargadaId = null;
+                    estado[slot].tareaActivaId = null;
+                }
+
+
+
+                const reader = new FileReader();
+
+                reader.onload = (event) => {
+
+                    estado[slot].urlOriginalImagen = event.target.result;
+
+                    imgFondo.src = estado[slot].urlOriginalImagen;
+
+
+
+                    imgFondo.addEventListener("load", () => {
+
+                        contenedorLienzo.classList.remove("hidden");
+
+                        controlesPincel.classList.remove("hidden");
+
+                        controlesEdicion.classList.remove("hidden");
+
+
+
+                        canvas.width = imgFondo.naturalWidth;
+
+                        canvas.height = imgFondo.naturalHeight;
+
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                        ctx.lineCap = "round";
+
+                        ctx.lineJoin = "round";
+
+                        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+
+
+
+                        estado[slot].datosRecorte = null;
+
+                        canvas.classList.remove("hidden");
+
+                    }, { once: true });
+
+                };
+
+                reader.readAsDataURL(file);
+
+            });
+
+
+
+            const btnActivarRecorte = el("btnActivarRecorte", slot);
+
+            const btnAplicarRecorte = el("btnAplicarRecorte", slot);
+
+            const btnCancelarRecorte = el("btnCancelarRecorte", slot);
+
+
+
+            btnActivarRecorte.addEventListener("click", () => {
+
+                if (estado[slot].cropperInstance) return;
+
+                estado[slot].recorteHorizontal = false;
+
+                canvas.classList.add("hidden");
+
+                controlesPincel.classList.add("hidden");
+
+
+
+                const canvasFalso = document.createElement("canvas");
+
+                estado[slot].extraX = imgFondo.naturalWidth * 0.5;
+
+                estado[slot].extraY = imgFondo.naturalHeight * 0.5;
+
+
+
+                canvasFalso.width = imgFondo.naturalWidth + (estado[slot].extraX * 2);
+
+                canvasFalso.height = imgFondo.naturalHeight + (estado[slot].extraY * 2);
+
+
+
+                const ctxFalso = canvasFalso.getContext("2d");
+
+                ctxFalso.drawImage(imgFondo, estado[slot].extraX, estado[slot].extraY);
+
+
+
+                imgFondo.addEventListener("load", () => {
+
+                    const dimensionElegida = el("select-dimension", slot).value;
+
+                    const par = DIMENSIONES_CM[dimensionElegida]; // [ancho_cm, alto_cm] o undefined si "original"
+
+                    const btnGirar = el("btnGirarRecorte", slot);
+
+                    const textoDim = () => estado[slot].recorteHorizontal ? `${par[1]} x ${par[0]}` : `${par[0]} x ${par[1]}`;
+
+                    const guia = el("guiaRecorte", slot);
+
+
+
+                    const opcionesCropper = {
+
+                        viewMode: 0,
+
+                        autoCropArea: 0.5,
+
+                        background: true,
+
+                        minContainerHeight: 350,
+
+                        responsive: true,
+
+                    };
+
+                    if (par) {
+
+                        opcionesCropper.aspectRatio = par[0] / par[1]; // fuerza SIEMPRE la proporción correcta
+
+                        guia.classList.remove("hidden");
+
+                        guia.innerText = `📐 Recorte bloqueado a proporción ${textoDim()} cm (vertical) — movelo/agrandalo hasta centrar a la persona. Usá 🔄 Girar para cortar horizontal.`;
+
+                    } else {
+
+                        guia.classList.add("hidden");
+
+                    }
+
+
+
+                    estado[slot].cropperInstance = new Cropper(imgFondo, opcionesCropper);
+
+
+
+                    if (par) {
+
+                        // Actualiza los "numeritos" en vivo: tamaño real aproximado (a 300dpi,
+
+                        // el estándar de imprenta) del recorte actual, para juzgar la resolución.
+
+                        imgFondo.addEventListener("crop", (ev) => {
+
+                            const DPI = 300;
+
+                            const anchoCm = (ev.detail.width / DPI * 2.54).toFixed(1);
+
+                            const altoCm = (ev.detail.height / DPI * 2.54).toFixed(1);
+
+                            guia.innerText = `📐 Recorte actual ≈ ${anchoCm} x ${altoCm} cm (a 300dpi) — proporción fija ${textoDim()} cm (${estado[slot].recorteHorizontal ? 'horizontal' : 'vertical'}).`;
+
+                        });
+
+                    }
+
+
+
+                    btnActivarRecorte.classList.add("hidden");
+
+                    btnAplicarRecorte.classList.remove("hidden");
+
+                    btnCancelarRecorte.classList.remove("hidden");
+
+                    const sliderTam = el("sliderTamanoRecorte", slot);
+                    const valorTam = el("valorTamanoRecorte", slot);
+                    const sliderVert = el("sliderPosVerticalRecorte", slot);
+                    const valorVert = el("valorPosVerticalRecorte", slot);
+                    const cajaTam = el("ajusteTamanoRecorte", slot);
+                    estado[slot].baseEncuadre = null;
+                    cajaTam.classList.remove("hidden");
+
+                    const textoVert = () => {
+                        const v = parseInt(sliderVert.value, 10);
+                        return v === 0 ? "Posición original" : (v < 0 ? `Subido ${-v}%` : `Bajado ${v}%`);
+                    };
+                    const reiniciarSlider = () => {
+                        estado[slot].baseEncuadre = null;
+                        sliderTam.value = 100; valorTam.innerText = "100%";
+                        sliderVert.value = 0; valorVert.innerText = textoVert();
+                    };
+                    reiniciarSlider();
+                    // Si el usuario mueve/redimensiona el cuadro a mano, los sliders vuelven a su punto neutro sobre el nuevo cuadro
+                    imgFondo.addEventListener("cropend", reiniciarSlider);
+
+                    // Aplica tamaño + posición vertical. El centro horizontal (eje X) NUNCA cambia.
+                    const aplicarAjustes = () => {
+                        const c = estado[slot].cropperInstance;
+                        if (!c) return;
+                        if (!estado[slot].baseEncuadre) {
+                            const d = c.getData();
+                            estado[slot].baseEncuadre = { cx: d.x + d.width / 2, cy: d.y + d.height / 2, w: d.width, h: d.height };
+                        }
+                        const b = estado[slot].baseEncuadre;
+                        const f = sliderTam.value / 100;
+                        const v = sliderVert.value / 100; // fracción de la altura base
+                        const w = b.w * f, h = b.h * f;
+                        valorTam.innerText = sliderTam.value + "%";
+                        valorVert.innerText = textoVert();
+                        c.setData({ x: b.cx - w / 2, y: b.cy + v * b.h - h / 2, width: w, height: h });
+                    };
+                    sliderTam.oninput = aplicarAjustes;
+                    sliderVert.oninput = aplicarAjustes;
+
+                    const btnAuto = el("btnAutoEncuadre", slot);
+                    btnAuto.classList.remove("hidden");
+                    btnAuto.onclick = async () => {
+                        const c = estado[slot].cropperInstance;
+                        if (!c) return;
+                        btnAuto.disabled = true;
+                        guia.classList.remove("hidden");
+                        guia.innerText = "🎯 Detectando a la persona... (la primera vez descarga el detector, puede tardar unos segundos)";
+                        try {
+                            let ratio = null;
+                            if (par) ratio = estado[slot].recorteHorizontal ? par[1] / par[0] : par[0] / par[1];
+                            const r = await calcularAutoEncuadre(estado[slot].urlOriginalImagen, ratio);
+                            const ex = estado[slot].extraX, ey = estado[slot].extraY; // el cropper trabaja con margen extra
+                            c.setData({ x: r.x + ex, y: r.y + ey, width: r.width, height: r.height });
+                            // Pasada de corrección: forzar que el centro del cuadro sea exactamente el centro de la cabeza
+                            let d = c.getData();
+                            const xDeseado = r.cx + ex - d.width / 2;
+                            if (Math.abs(d.x - xDeseado) > 0.01) { c.setData({ x: xDeseado }); d = c.getData(); }
+                            reiniciarSlider();
+                            estado[slot].baseEncuadre = { cx: d.x + d.width / 2, cy: d.y + d.height / 2, w: d.width, h: d.height };
+                            // Verificación: distancia (en px de la imagen original) del borde del cuadro a cada lado de la cabeza
+                            const izqCuadro = d.x - ex;
+                            const distIzq = r.cabezaIzq - izqCuadro;
+                            const distDer = (izqCuadro + d.width) - r.cabezaDer;
+                            const origen = r.metodo === "silueta" ? "silueta de la cabeza" : (r.metodo === "rostro" ? "caja del rostro (sin silueta)" : "caja del cuerpo");
+                            guia.innerText = `🎯 Encuadre listo (medido con ${origen}). Distancia a la cabeza → Izq: ${distIzq.toFixed(1)} px | Der: ${distDer.toFixed(1)} px`;
+                        } catch (err) {
+                            console.error(err);
+                            guia.innerText = "⚠️ No se pudo encuadrar automáticamente: " + (err.message || err);
+                        } finally {
+                            btnAuto.disabled = false;
+                        }
+                    };
+
+                    if (par) {
+
+                        btnGirar.classList.remove("hidden");
+
+                        btnGirar.onclick = () => {
+                            const c = estado[slot].cropperInstance;
+                            if (!c) return;
+                            estado[slot].recorteHorizontal = !estado[slot].recorteHorizontal;
+                            const ratio = par[0] / par[1];
+                            const nuevoRatio = estado[slot].recorteHorizontal ? 1 / ratio : ratio;
+                            // Conservar el centro y el área aproximada del cuadro al girarlo
+                            const cb = c.getCropBoxData();
+                            const cx = cb.left + cb.width / 2;
+                            const cy = cb.top + cb.height / 2;
+                            const area = cb.width * cb.height;
+                            let nw = Math.sqrt(area * nuevoRatio);
+                            let nh = nw / nuevoRatio;
+                            c.setAspectRatio(nuevoRatio);
+                            c.setCropBoxData({ left: cx - nw / 2, top: cy - nh / 2, width: nw, height: nh });
+                            guia.innerText = `📐 Cuadro girado a ${estado[slot].recorteHorizontal ? "HORIZONTAL" : "VERTICAL"} (${textoDim()} cm).`;
+                        };
+
+                    }
+
+                }, { once: true });
+
+                imgFondo.src = canvasFalso.toDataURL("image/png");
+
+            });
+
+
+
+            btnCancelarRecorte.addEventListener("click", () => {
+
+                if (estado[slot].cropperInstance) { estado[slot].cropperInstance.destroy(); estado[slot].cropperInstance = null; }
+
+                el("guiaRecorte", slot).classList.add("hidden");
+
+                imgFondo.addEventListener("load", () => {
+
+                    canvas.classList.remove("hidden");
+
+                    controlesPincel.classList.remove("hidden");
+
+                    btnActivarRecorte.classList.remove("hidden");
+
+                    btnAplicarRecorte.classList.add("hidden");
+
+                    btnCancelarRecorte.classList.add("hidden");
+
+                    el("btnGirarRecorte", slot).classList.add("hidden");
+
+                    el("btnAutoEncuadre", slot).classList.add("hidden");
+
+                    el("ajusteTamanoRecorte", slot).classList.add("hidden");
+
+                }, { once: true });
+
+                imgFondo.src = estado[slot].urlOriginalImagen;
+
+            });
+
+
+
+            btnAplicarRecorte.addEventListener("click", () => {
+
+                if (!estado[slot].cropperInstance) return;
+
+                const datosFalsos = estado[slot].cropperInstance.getData(true);
+
+                estado[slot].datosRecorte = {
+
+                    x: datosFalsos.x - estado[slot].extraX,
+
+                    y: datosFalsos.y - estado[slot].extraY,
+
+                    width: datosFalsos.width,
+
+                    height: datosFalsos.height,
+
+                    horizontal: estado[slot].recorteHorizontal
+
+                };
+
+                estado[slot].cropperInstance.destroy();
+
+                estado[slot].cropperInstance = null;
+
+                el("guiaRecorte", slot).classList.add("hidden");
+
+
+
+                imgFondo.addEventListener("load", () => {
+
+                    canvas.classList.remove("hidden");
+
+                    controlesPincel.classList.remove("hidden");
+
+                    btnActivarRecorte.classList.remove("hidden");
+
+                    btnAplicarRecorte.classList.add("hidden");
+
+                    btnCancelarRecorte.classList.add("hidden");
+
+                    el("btnGirarRecorte", slot).classList.add("hidden");
+
+                    el("btnAutoEncuadre", slot).classList.add("hidden");
+
+                    el("ajusteTamanoRecorte", slot).classList.add("hidden");
+
+                    alert("✅ Coordenadas expansivas guardadas. ¡El servidor armará el nuevo tamaño!");
+
+                }, { once: true });
+
+                imgFondo.src = estado[slot].urlOriginalImagen;
+
+            });
+
+
+
+            canvas.addEventListener("mousedown", (e) => { estado[slot].dibujando = true; pintar(e); });
+
+            canvas.addEventListener("mouseup", () => { estado[slot].dibujando = false; ctx.beginPath(); });
+
+            canvas.addEventListener("mousemove", pintar);
+
+            canvas.addEventListener("mouseleave", () => { estado[slot].dibujando = false; ctx.beginPath(); });
+
+
+
+            canvas.addEventListener("touchstart", (e) => { estado[slot].dibujando = true; pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
+
+            canvas.addEventListener("touchend", () => { estado[slot].dibujando = false; ctx.beginPath(); });
+
+            canvas.addEventListener("touchmove", (e) => { pintar(e.touches[0]); e.preventDefault(); }, {passive: false});
+
+
+
+            function pintar(e) {
+
+                if (!estado[slot].dibujando) return;
+
+                const rect = canvas.getBoundingClientRect();
+
+                const scaleX = canvas.width / rect.width;
+
+                const scaleY = canvas.height / rect.height;
+
+                const x = (e.clientX - rect.left) * scaleX;
+
+                const y = (e.clientY - rect.top) * scaleY;
+
+                ctx.lineWidth = grosorPincel.value * scaleX;
+
+                ctx.lineTo(x, y);
+
+                ctx.stroke();
+
+                ctx.beginPath();
+
+                ctx.moveTo(x, y);
+
+            }
+
+
+
+            el("btnLimpiar", slot).addEventListener("click", () => {
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            });
+
+
+
+            // -------- Mostrar/ocultar el selector de "rostro original" --------
+
+            const contenedorRostroRef = el("contenedorRostroRef", slot);
+
+            const contenedorUsarCodeformer = el("contenedorUsarCodeformer", slot);
+
+            const selectComando = el("comando", slot);
+
+            function actualizarVisibilidadRostroRef() {
+
+                if (selectComando.value === "restaurar_rostro_logo" || selectComando.value === "proceso_completo") {
+
+                    contenedorRostroRef.classList.remove("hidden");
+
+                } else {
+
+                    contenedorRostroRef.classList.add("hidden");
+
+                }
+
+                // La casilla "Usar CodeFormer" solo aplica al trasplante de rostro
+                // dentro de Proceso Completo (en Restaurar Rostro + Quitar Logo el
+                // rostro se pega tal cual, sin pasar por CodeFormer).
+                if (selectComando.value === "proceso_completo") {
+
+                    contenedorUsarCodeformer.classList.remove("hidden");
+
+                } else {
+
+                    contenedorUsarCodeformer.classList.add("hidden");
+
+                }
+
+            }
+
+            selectComando.addEventListener("change", actualizarVisibilidadRostroRef);
+
+            actualizarVisibilidadRostroRef();
+
+
+
+            function obtenerMascaraBlob() {
+
+                return new Promise(resolve => {
+
+                    const maskCanvas = document.createElement("canvas");
+
+                    maskCanvas.width = canvas.width;
+
+                    maskCanvas.height = canvas.height;
+
+                    const mCtx = maskCanvas.getContext("2d");
+
+
+
+                    mCtx.fillStyle = "black";
+
+                    mCtx.fillRect(0, 0, maskCanvas.width, maskCanvas.height);
+
+                    mCtx.drawImage(canvas, 0, 0);
+
+
+
+                    const imgData = mCtx.getImageData(0, 0, maskCanvas.width, maskCanvas.height);
+
+                    for (let i = 0; i < imgData.data.length; i += 4) {
+
+                        if (imgData.data[i] > 0) {
+
+                            imgData.data[i] = 255;
+
+                            imgData.data[i+1] = 255;
+
+                            imgData.data[i+2] = 255;
+
+                            imgData.data[i+3] = 255;
+
+                        }
+
+                    }
+
+                    mCtx.putImageData(imgData, 0, 0);
+
+                    maskCanvas.toBlob(resolve, "image/png");
+
+                });
+
+            }
+
+
+
+            function hayAlgoPintado() {
+
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+                for (let i = 3; i < imgData.data.length; i += 4) {
+
+                    if (imgData.data[i] > 0) return true;
+
+                }
+
+                return false;
+
+            }
+
+
+
+            // -------- Envío de tareas (etiquetadas con el slot de esta pestaña) --------
+
+            const btnEnviar = el("btnEnviar", slot);
+
+            const txtEstado = el("estado", slot);
+
+
+
+            btnEnviar.addEventListener("click", async () => {
+
+                const archivo = inputArchivo.files[0];
+
+                const comando = el("comando", slot).value;
+
+                const dimensionElegida = el("select-dimension", slot).value;
+
+                const mallaElegida = el("select-malla", slot).value;
+
+
+
+                if (!archivo) return alert("Sube una imagen primero");
+
+
+
+                if (comando === "restaurar_rostro_logo") {
+
+                    const tieneRostro = !!el("archivoRostro", slot).files[0];
+
+                    const tieneLogoPintado = hayAlgoPintado();
+
+                    // Las dos funciones son independientes y combinables:
+
+                    // - Solo rostro: sube la foto de referencia, no pintes nada.
+
+                    // - Solo logo: no subas foto de referencia, pinta el logo.
+
+                    // - Ambas: sube la foto Y pinta el logo.
+
+                    if (!tieneRostro && !tieneLogoPintado) {
+
+                        return alert("Sube la foto con el rostro ORIGINAL y/o pinta con el pincel el logo a borrar (podes usar una de las dos opciones, o ambas).");
+
+                    }
+
+                }
+
+
+
+                btnEnviar.disabled = true;
+
+                btnEnviar.classList.replace("bg-blue-600", "bg-gray-600");
+
+                txtEstado.classList.remove("hidden");
+
+                txtEstado.innerText = "Preparando transferencia...";
+
+
+
+                try {
+
+                    const metodoSubida = el("metodoSubida", slot).value;
+                    const subir = (b, nombre) => metodoSubida === "imgbb" ? subirAImgBB(b) : subirADrive(b, slot, nombre);
+                    let dataOrig = { url: "", fileId: "" };
+                    if (!estado[slot].archivoModificado && estado[slot].imagenCargadaUrl) {
+                        txtEstado.innerText = "♻️ Reutilizando enlace de imagen ya subida...";
+                        dataOrig = { url: estado[slot].imagenCargadaUrl, fileId: estado[slot].imagenCargadaId || "" };
+                    } else {
+                        txtEstado.innerText = metodoSubida === "imgbb" ? "🚀 Subiendo imagen a ImgBB..." : "☁️ Subiendo imagen a Drive...";
+                        dataOrig = await subir(archivo, archivo.name);
+                    }
+
+                    let urlOriginal = dataOrig.url;
+
+                    let urlMascara = "";
+
+                    let urlRostroReferencia = "";
+
+                    let idMascara = "";
+
+                    let idImagenRostro = "";
+
+
+
+                    if (comando === "armonizar_color") {
+
+                        txtEstado.innerText = "Subiendo máscara térmica...";
+
+                        const blobMascara = await obtenerMascaraBlob();
+
+                        const dataMascara = await subir(blobMascara, "mascara.png");
+
+                        urlMascara = dataMascara.url;
+
+                        idMascara = dataMascara.fileId;
+
+                    }
+
+
+
+                    if (comando === "restaurar_rostro_logo" || comando === "proceso_completo") {
+
+                        const archivoRostro = el("archivoRostro", slot).files[0];
+
+                        // La foto de referencia del rostro ahora es OPCIONAL: si no se
+
+                        // sube, simplemente no se cambia el rostro y solo se hace el
+
+                        // borrado del logo (si se pinto algo).
+
+                        if (archivoRostro) {
+
+                            txtEstado.innerText = "Subiendo foto de referencia del rostro...";
+
+                            const dataRostro = await subir(archivoRostro, archivoRostro.name);
+
+                            urlRostroReferencia = dataRostro.url;
+
+                            idImagenRostro = dataRostro.fileId;
+
+                        }
+
+
+
+                        // La máscara del logo es opcional: solo se sube si el usuario pintó algo con el pincel.
+
+                        if (hayAlgoPintado()) {
+
+                            txtEstado.innerText = "Subiendo máscara del logo a borrar...";
+
+                            const blobMascara = await obtenerMascaraBlob();
+
+                            const dataMascara = await subir(blobMascara, "mascara.png");
+
+                            urlMascara = dataMascara.url;
+
+                            idMascara = dataMascara.fileId;
+
+                        }
+
+                    }
+
+
+
+                    if ((comando === "recorte_manual" || comando === "proceso_completo") && !estado[slot].datosRecorte) {
+
+                        throw new Error("Debes usar la herramienta '✂️ Recorte Manual' y darle a '✅ Aplicar Recorte' antes de enviar.");
+
+                    }
+
+                    if (!urlOriginal) {
+                        throw new Error("No se obtuvo la URL de la imagen subida. No se puede crear la tarea.");
+                    }
+
+                    let urlFondoCustom = "";
+                    let idFondoCustom = "";
+                    if (el("usarFondoCustom", slot).checked) {
+                        txtEstado.innerText = "🎨 Subiendo fondo personalizado del estudio...";
+                        const blobFondo = await obtenerBlobFondoCustom();
+                        const dataFondo = metodoSubida === "imgbb"
+                            ? await subirAImgBB(blobFondo)
+                            : await subirADrive(blobFondo, slot, "fondo_custom.jpg");
+                        urlFondoCustom = dataFondo.url;
+                        idFondoCustom = dataFondo.fileId || "";
+                        if (!urlFondoCustom) throw new Error("No se pudo subir el fondo personalizado.");
+                    }
+
+                    const nuevaTareaRef = push(ref(db, "tareas_ia"));
+
+                    await set(nuevaTareaRef, {
+
+                        estado: "pendiente",
+
+                        comando: comando,
+
+                        slot: String(slot),
+
+                        fidelidad: parseFloat(el("fidelidadIA", slot).value),
+
+                        fuerza_naranja: parseFloat(el("fuerzaNaranja", slot).value),
+
+                        mantener_color_original: el("mantenerColorOriginal", slot).checked,
+                        forzar_lama: el("forzarLaMa", slot).checked,
+                        retoque_activo: el("activarRetoquePiel", slot).checked,
+                        retoque_temp: parseInt(el("sliderTemp", slot).value),
+                        retoque_sat: parseInt(el("sliderSat", slot).value),
+                        retoque_lum: parseInt(el("sliderLum", slot).value),
+
+                        fondo_id: el("usarFondoCustom", slot).checked ? "custom" : el("fondoIA", slot).value,
+                        url_fondo_custom: urlFondoCustom,
+                        id_fondo_custom: idFondoCustom,
+
+                        dimension: dimensionElegida,
+
+                        malla_id: mallaElegida,
+
+                        url_imagen: urlOriginal,
+
+                        id_imagen: dataOrig.fileId || "",
+
+                        url_mascara: urlMascara,
+
+                        id_mascara: idMascara || "",
+
+                        url_imagen_rostro: urlRostroReferencia,
+
+                        id_imagen_rostro: idImagenRostro || "",
+
+                        usar_codeformer: el("usarCodeformer", slot).checked,
+
+                        crop_x: estado[slot].datosRecorte ? estado[slot].datosRecorte.x : 0,
+
+                        crop_y: estado[slot].datosRecorte ? estado[slot].datosRecorte.y : 0,
+
+                        crop_w: estado[slot].datosRecorte ? estado[slot].datosRecorte.width : 0,
+
+                        crop_h: estado[slot].datosRecorte ? estado[slot].datosRecorte.height : 0,
+
+                        orientacion: (estado[slot].datosRecorte && estado[slot].datosRecorte.horizontal) ? "horizontal" : "vertical",
+
+                        fecha: new Date().toISOString()
+
+                    });
+
+
+
+                    let nuevaTarea = {
+
+                        id: nuevaTareaRef.key,
+
+                        comando: comando,
+
+                        estado: 'pendiente',
+
+                        urlOriginal: urlOriginal,
+
+                        urlResultado: null
+
+                    };
+
+                    estado[slot].historialTareas.unshift(nuevaTarea);
+
+                    guardarEnLocalStorage(slot);
+
+                    reconectarPendientes(slot);
+
+
+
+                    txtEstado.innerText = `¡Enviado al servidor de la Pestaña ${slot}! Mira el historial.`;
+
+                    setTimeout(() => txtEstado.classList.add("hidden"), 3000);
+
+
+
+                } catch (error) {
+
+                    alert(error.message);
+
+                } finally {
+
+                    btnEnviar.disabled = false;
+
+                    btnEnviar.classList.replace("bg-gray-600", "bg-blue-600");
+
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                }
+
+            });
+
+
+
+            el("btnConfigurarURLs", slot).addEventListener("click", () => {
+
+                const actualCPU = localStorage.getItem(`url_apps_script_cpu_${slot}`) || "";
+
+                const nuevaCPU = prompt(`Pega la URL de Apps Script (puede ser LA MISMA para las 5 pestañas, el sistema envía el número de slot automáticamente):`, actualCPU);
+
+                if (nuevaCPU !== null) localStorage.setItem(`url_apps_script_cpu_${slot}`, nuevaCPU.trim());
+
+                alert(`✅ URL guardada de forma segura en este navegador para la Pestaña ${slot}.`);
+
+            });
+
+
+
+            // -------- Probador rápido de fondos --------
+
+            // Reutiliza el PNG "sin fondo" ya cortado: el servidor NO vuelve a
+
+            // correr la IA de recorte, solo pega el fondo elegido, así que cada
+
+            // prueba tarda segundos en vez de minutos.
+
+            el("btnProbarFondo", slot).addEventListener("click", async () => {
+
+                if (!estado[slot].urlSinFondo) {
+
+                    return alert('Primero corré la acción "🖼️ Cortar Sin Fondo (para probar fondos)".');
+
+                }
+
+                const btn = el("btnProbarFondo", slot);
+
+                const fondoElegido = el("fondoPrueba", slot).value;
+
+                btn.disabled = true;
+
+                btn.innerText = "⏳ Probando...";
+
+                try {
+
+                    if (!estado[slot].urlSinFondo) {
+                        throw new Error("No hay una imagen sin fondo cargada todavía para probar un fondo nuevo.");
+                    }
+
+                    const nuevaTareaRef = push(ref(db, "tareas_ia"));
+
+                    await set(nuevaTareaRef, {
+
+                        estado: "pendiente",
+
+                        comando: "probar_fondo",
+
+                        slot: String(slot),
+
+                        fondo_id: fondoElegido,
+
+                        dimension: el("select-dimension", slot).value,
+
+                        malla_id: el("select-malla", slot).value,
+
+                        url_imagen: estado[slot].urlSinFondo,
+
+                        id_imagen: estado[slot].idSinFondo || "",
+
+                        fecha: new Date().toISOString()
+
+                    });
+
+                    estado[slot].historialTareas.unshift({
+
+                        id: nuevaTareaRef.key,
+
+                        comando: `probar_fondo (Nº ${fondoElegido})`,
+
+                        estado: 'pendiente',
+
+                        urlOriginal: estado[slot].urlSinFondo,
+
+                        urlResultado: null
+
+                    });
+
+                    guardarEnLocalStorage(slot);
+
+                    reconectarPendientes(slot);
+
+                } catch (error) {
+
+                    alert("Error al probar el fondo: " + error.message);
+
+                } finally {
+
+                    btn.disabled = false;
+
+                    btn.innerText = "👁️ Probar este fondo";
+
+                }
+
+            });
+
+        }
+
+
+
+        SLOTS.forEach(slot => inicializarPanel(slot));
+
+
+
+    </script>
+
+    <script>
+        // 1. BLOQUEO MILITAR DE MENÚS NATIVOS EN MÓVILES
+        // Complementa el CSS de touch-action/-webkit-touch-callout: el CSS ya
+        // evita el "long-press" nativo, y esto además cancela el evento
+        // contextmenu si algún navegador lo dispara igual sobre el cropper.
+        document.addEventListener('contextmenu', function(e) {
+            if (e.target.closest('.cropper-container') || e.target.closest('canvas')) {
+                e.preventDefault();
+                e.stopPropagation();
+                return false;
+            }
+        }, { passive: false });
+
+        // 2. AUTO-GUARDADO DE RECORTES AL ENVIAR
+        // Si el usuario recortó la imagen pero olvidó pulsar "Aplicar Recorte"
+        // antes de "Enviar Tarea", el recorte manual se perdía silenciosamente.
+        // Interceptamos el clic de envío (capture=true, ANTES de la lógica de
+        // envío) y disparamos el guardado del recorte automáticamente.
+        document.addEventListener('click', function(e) {
+            if (e.target.id && e.target.id.startsWith('btnEnviar-')) {
+                const slot = e.target.id.split('-')[1];
+
+                if (estado[slot] && estado[slot].cropperInstance) {
+                    const btnAplicar = document.getElementById(`btnAplicarRecorte-${slot}`);
+                    if (btnAplicar && !btnAplicar.classList.contains('hidden')) {
+                        btnAplicar.click(); // fuerza el guardado de coordenadas
+                    }
+                }
+            }
+        }, true); // 'true' asegura que esto se ejecute ANTES que la lógica de envío
+    </script>
+</body>
+
+</html>

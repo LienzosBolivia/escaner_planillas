@@ -50,6 +50,10 @@
     <div class="w-full max-w-5xl mb-4">
 
         <div id="barraPestañas" class="flex gap-1 bg-gray-800 p-1 rounded-xl shadow-lg overflow-x-auto"></div>
+        <div class="flex flex-wrap items-center justify-between gap-2 mt-3 bg-gray-800 rounded-lg p-3">
+            <p class="text-xs text-gray-300">Historial local: <span id="totalHistorialLocal" class="font-bold text-white">0</span> trabajos en las 5 pestañas</p>
+            <button type="button" id="btnVaciarHistorialLocal" class="bg-amber-700 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-bold px-4 py-2 rounded-lg transition" title="Vacía los 5 historiales sin borrar archivos de Google Drive">🧹 Limpiar toda la cola local</button>
+        </div>
 
     </div>
 
@@ -723,7 +727,8 @@
 
             estado[s] = {
 
-                historialTareas: JSON.parse(localStorage.getItem(`tareasIA_${s}`)) || [],
+                historialTareas: leerHistorialLocal(s),
+                escuchasTareas: new Map(),
                 cargandoDesdeHistorial: false,
                 archivoModificado: true,
                 imagenCargadaUrl: null,
@@ -1011,6 +1016,68 @@
 
         // ==========================================
 
+        function leerHistorialLocal(slot) {
+            try {
+                const datos = JSON.parse(localStorage.getItem(`tareasIA_${slot}`) || "[]");
+                return Array.isArray(datos) ? datos : [];
+            } catch (error) {
+                console.warn("No se pudo leer el historial local:", error);
+                return [];
+            }
+        }
+
+        function actualizarTotalHistorialLocal() {
+            const total = SLOTS.reduce((n, slot) => n + estado[slot].historialTareas.length, 0);
+            document.getElementById("totalHistorialLocal").textContent = String(total);
+            document.getElementById("btnVaciarHistorialLocal").disabled = total === 0;
+        }
+
+        function detenerEscuchaTarea(slot, id) {
+            const escuchas = estado[slot].escuchasTareas;
+            const registro = escuchas.get(id);
+            if (!registro) return;
+            escuchas.delete(id);
+            registro.cancelada = true;
+            if (registro.unsubscribe) registro.unsubscribe();
+        }
+
+        function limpiarHistorialLocal() {
+            const tareas = SLOTS.flatMap(slot => estado[slot].historialTareas);
+            if (!tareas.length) return;
+            if (SLOTS.some(slot => ["btnEnviar", "btnProbarFondo", "btnAplicarColorLocal"].some(id => el(id, slot)?.disabled))) {
+                alert("Hay una transferencia o edición local en curso. Termina esa operación antes de limpiar el historial.");
+                return;
+            }
+            const pendientes = tareas.filter(t => t.estado === "pendiente" || t.estado === "procesando").length;
+            const ajustes = SLOTS.some(slot => Object.keys(estado[slot].coloresLocales).length > 0);
+            const aviso = `¿Vaciar los ${tareas.length} trabajos del historial local de las 5 pestañas?\n\n` +
+                "No se eliminarán archivos de Google Drive ni tareas de Firebase. Se conservarán las imágenes abiertas en los lienzos y la configuración." +
+                (pendientes ? `\n\nATENCIÓN: ${pendientes} trabajos pendientes o en curso seguirán en el servidor, pero dejarán de aparecer aquí.` : "") +
+                (ajustes ? "\n\nLas versiones de color guardadas solo en el historial local se perderán. Descárgalas antes si las necesitas." : "") +
+                "\n\nEsta acción no se puede deshacer.";
+            if (!confirm(aviso)) return;
+            const fallidos = [];
+            for (const slot of SLOTS) {
+                try {
+                    localStorage.removeItem(`tareasIA_${slot}`);
+                } catch (error) {
+                    console.warn("No se pudo limpiar el historial de la pestaña " + slot, error);
+                    fallidos.push(slot);
+                    continue;
+                }
+                const panel = estado[slot];
+                for (const id of panel.escuchasTareas.keys()) detenerEscuchaTarea(slot, id);
+                panel.historialTareas = [];
+                panel.coloresLocales = {};
+                panel.tareaActivaId = null;
+                renderizarHistorial(slot);
+            }
+            if (fallidos.length) alert("No se pudo limpiar el almacenamiento local de las pestañas: " + fallidos.join(", ") + ". Intenta nuevamente.");
+            else alert("✅ Historial local limpio. Tus archivos de Google Drive siguen intactos.");
+        }
+
+        document.getElementById("btnVaciarHistorialLocal").addEventListener("click", limpiarHistorialLocal);
+
         function guardarEnLocalStorage(slot) {
 
             localStorage.setItem(`tareasIA_${slot}`, JSON.stringify(estado[slot].historialTareas));
@@ -1035,6 +1102,9 @@
 
                 }
 
+                detenerEscuchaTarea(slot, id);
+                delete estado[slot].coloresLocales[id];
+                if (estado[slot].tareaActivaId === id) estado[slot].tareaActivaId = null;
                 estado[slot].historialTareas = estado[slot].historialTareas.filter(t => t.id !== id);
 
                 guardarEnLocalStorage(slot);
@@ -1160,6 +1230,8 @@
                 if (!response.ok) throw new Error("Fallo en la transferencia");
 
                 const blob = await response.blob();
+                // El historial pudo limpiarse mientras se descargaba el original.
+                if (tareaId && !estado[slot].historialTareas.some(t => t.id === tareaId)) return;
 
                 const file = new File([blob], "imagen_editada.jpg", { type: "image/jpeg" });
 
@@ -1576,14 +1648,14 @@
             if (!u) return "";
             if (u.startsWith("data:")) return u;
             const m = u.match(/[?&]id=([^&]+)/);
-            return m ? `https://drive.google.com/thumbnail?id=${m[1]}&sz=w1000` : u;
+            return m ? `https://drive.google.com/thumbnail?id=${m[1]}&sz=w480` : u;
         }
 
         function renderizarHistorial(slot) {
 
             const contenedor = el("contenedorHistorial", slot);
 
-            contenedor.innerHTML = "";
+            const tarjetas = [];
 
             estado[slot].historialTareas.forEach(tarea => {
 
@@ -1612,15 +1684,15 @@
                             <div class="grid grid-cols-2 gap-2 mt-2">
                                 <a href="${hrefLimpia}" ${attrDescarga}>
                                     <div class="text-[10px] text-center text-gray-400 mb-1">Corte Original${ov.limpia ? ' 🎨' : ''}</div>
-                                    <img src="${srcLimpia}" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
+                                    <img src="${srcLimpia}" loading="lazy" decoding="async" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
                                 </a>
                                 <a href="${hrefMalla}" ${attrDescargaM}>
                                     <div class="text-[10px] text-center text-gray-400 mb-1">Con Malla${ov.malla ? ' 🎨' : ''}</div>
-                                    <img src="${srcMalla}" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
+                                    <img src="${srcMalla}" loading="lazy" decoding="async" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
                                 </a>
                             </div>`;
                         } else {
-                            htmlImg = `<a href="${hrefLimpia}" ${attrDescarga}><img src="${srcLimpia}" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
+                            htmlImg = `<a href="${hrefLimpia}" ${attrDescarga}><img src="${srcLimpia}" loading="lazy" decoding="async" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
                         }
                         botonesAccion = `
 
@@ -1628,7 +1700,7 @@
 
                             <button onclick="cargarImagenEnLienzo(${slot}, '${tarea.urlResultado}', '${tarea.driveId || ''}', '${urlVisualizacion}', '${tarea.id}')" class="flex-1 bg-gray-700 hover:bg-gray-600 text-xs text-white py-2 rounded font-bold shadow">⬇️ Cargar al Panel</button>
 
-                            <button onclick="eliminarTarea(${slot}, '${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
+                            <button onclick="eliminarTarea(${slot}, '${tarea.id}', '${tarea.driveId}', '${tarea.driveIdMalla}')" title="Eliminar trabajo y archivos de Google Drive" class="bg-red-900 hover:bg-red-800 text-xs text-white px-3 py-2 rounded font-bold shadow">🗑️</button>
 
                         </div>`;
 
@@ -1650,7 +1722,7 @@
 
 
 
-                contenedor.innerHTML += `
+                tarjetas.push(`
 
                     <div class="bg-gray-900 p-4 rounded-lg border border-gray-700 shadow relative">
 
@@ -1674,76 +1746,64 @@
 
                     </div>
 
-                `;
+                `);
 
             });
+            contenedor.innerHTML = tarjetas.join("") || '<p class="text-sm text-gray-400 text-center py-8">No hay trabajos en el historial local.</p>';
+            actualizarTotalHistorialLocal();
 
         }
 
 
 
         function reconectarPendientes(slot) {
+            const panel = estado[slot];
+            panel.historialTareas.forEach(tarea => {
+                if (tarea.estado !== "pendiente" && tarea.estado !== "procesando") return;
+                const id = tarea.id;
+                if (panel.escuchasTareas.has(id)) return;
 
-            estado[slot].historialTareas.forEach((tarea, index) => {
-
-                if (tarea.estado === 'pendiente' || tarea.estado === 'procesando') {
-
-                    const unsubscribe = onValue(ref(db, `tareas_ia/${tarea.id}`), (documento) => {
-
-                        const datos = documento.val();
-
-                        if (datos && (datos.estado === "completado" || datos.estado === "error")) {
-
-                            estado[slot].historialTareas[index].estado = datos.estado;
-
-                            if (datos.estado === "completado") {
-
-                                estado[slot].historialTareas[index].urlResultado = datos.url_resultado;
-
-                                estado[slot].historialTareas[index].driveId = datos.drive_id;
-
-                                if (datos.url_resultado_malla) {
-
-                                    estado[slot].historialTareas[index].urlResultadoMalla = datos.url_resultado_malla;
-
-                                    estado[slot].historialTareas[index].driveIdMalla = datos.drive_id_malla;
-
-                                }
-
-                                // Si la tarea era "cortar sin fondo", guardamos su resultado
-
-                                // (PNG transparente) para poder probar fondos rápido después.
-
-                                if (estado[slot].historialTareas[index].comando === "cortar_sin_fondo" && datos.url_resultado) {
-
-                                    estado[slot].urlSinFondo = datos.url_resultado;
-
-                                    estado[slot].idSinFondo = datos.drive_id;
-
-                                    el("probadorFondos", slot).classList.remove("hidden");
-
-                                }
-
+                // Una única suscripción por ID, nunca por índice del array.
+                const registro = { unsubscribe: null, cancelada: false };
+                panel.escuchasTareas.set(id, registro);
+                registro.unsubscribe = onValue(ref(db, `tareas_ia/${id}`), documento => {
+                    if (registro.cancelada) return;
+                    const actual = panel.historialTareas.find(t => t.id === id);
+                    if (!actual) {
+                        detenerEscuchaTarea(slot, id);
+                        return;
+                    }
+                    const datos = documento.val();
+                    if (!datos) return;
+                    if (datos.estado === "completado" || datos.estado === "error") {
+                        actual.estado = datos.estado;
+                        if (datos.estado === "completado") {
+                            actual.urlResultado = datos.url_resultado;
+                            actual.driveId = datos.drive_id;
+                            if (datos.url_resultado_malla) {
+                                actual.urlResultadoMalla = datos.url_resultado_malla;
+                                actual.driveIdMalla = datos.drive_id_malla;
                             }
-
-                            guardarEnLocalStorage(slot);
-
-                            unsubscribe();
-
-                        } else if (datos) {
-
-                            estado[slot].historialTareas[index].estado = datos.estado;
-
-                            guardarEnLocalStorage(slot);
-
+                            if (actual.comando === "cortar_sin_fondo" && datos.url_resultado) {
+                                panel.urlSinFondo = datos.url_resultado;
+                                panel.idSinFondo = datos.drive_id;
+                                el("probadorFondos", slot).classList.remove("hidden");
+                            }
                         }
-
-                    });
-
-                }
-
+                        detenerEscuchaTarea(slot, id);
+                        guardarEnLocalStorage(slot);
+                    } else if (datos.estado !== actual.estado) {
+                        actual.estado = datos.estado;
+                        guardarEnLocalStorage(slot);
+                    }
+                }, error => {
+                    if (registro.cancelada) return;
+                    detenerEscuchaTarea(slot, id);
+                    console.warn("No se pudo escuchar la tarea " + id, error);
+                });
+                // Cubre incluso una llamada inicial síncrona de onValue.
+                if (registro.cancelada) registro.unsubscribe();
             });
-
         }
 
 
@@ -2084,8 +2144,10 @@
                         const nuevo = { ...previo };
                         nuevo.limpia = await aplicarColorAUrl(previo.limpia || t.urlResultado, params, previo.limpia ? "" : (t.driveId || ""), slot);
                         if (t.urlResultadoMalla) nuevo.malla = await aplicarColorAUrl(previo.malla || t.urlResultadoMalla, params, previo.malla ? "" : (t.driveIdMalla || ""), slot);
-                        estado[slot].coloresLocales[idTarea] = nuevo;
-                        renderizarHistorial(slot);
+                        if (estado[slot].historialTareas.some(x => x.id === idTarea)) {
+                            estado[slot].coloresLocales[idTarea] = nuevo;
+                            renderizarHistorial(slot);
+                        }
                     }
 
                     // 3) El color ya está horneado: barras a 0

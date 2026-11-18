@@ -1,0 +1,2423 @@
+import os, time, uuid, requests, sys, atexit, glob, subprocess, shutil
+print("🚀 1. PREPARANDO EL ENTORNO (VERSIÓN ULTRA-LIGERA CPU)...")
+
+# =========================================================================
+# ⚠️ CONFIGURACIÓN DE ESTE SERVIDOR ⚠️
+# Cambia este número (1 al 5) según la pestaña del panel que va a controlar
+# este notebook. Cada notebook de Kaggle debe tener un SLOT distinto.
+# =========================================================================
+SLOT = "1"   # <-- CAMBIAR A "1", "2", "3", "4" o "5" EN CADA NOTEBOOK
+
+import json
+try:
+    import firebase_admin
+except ImportError:
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "firebase-admin", "-q"])
+    import firebase_admin
+from firebase_admin import credentials, db as rtdb
+for filename in glob.iglob("/kaggle/input/**/*.json", recursive=True):
+    try:
+        with open(filename, encoding="utf-8") as source:
+            config = json.load(source)
+        if isinstance(config, dict) and config.get("type") == "service_account" and config.get("project_id") == "botartes":
+            firebase_admin.initialize_app(credentials.Certificate(config), {"databaseURL":"https://botartes-default-rtdb.firebaseio.com/"})
+            break
+    except (ValueError, OSError, UnicodeError):
+        continue
+else:
+    raise RuntimeError("Falta la cuenta de servicio de botartes en el dataset privado.")
+
+from firebase_admin import auth as firebase_auth
+_token_worker = None
+_token_vence = 0
+
+def token_worker():
+    global _token_worker, _token_vence
+    if time.monotonic() >= _token_vence:
+        firmado = firebase_auth.create_custom_token("kaggle-taller").decode()
+        resp = requests.post("https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken",
+                             params={"key": FIREBASE_WEB_API_KEY}, json={"token":firmado,"returnSecureToken":True}, timeout=30)
+        resp.raise_for_status()
+        _token_worker = resp.json()["idToken"]
+        _token_vence = time.monotonic() + 3000
+    return _token_worker
+
+SESION_ID = uuid.uuid4().hex
+slot_ref = rtdb.reference(f"servidores/slot_{SLOT}")
+def adquirir(actual):
+    actual = actual or {}
+    if actual.get("sesion_activa"):
+        raise SystemExit("Slot ocupado. Compruebe la sesión en Kaggle.")
+    return {**actual, "sesion_activa": SESION_ID, "interrumpir":False}
+slot_ref.transaction(adquirir)
+
+class SesionReemplazada(SystemExit):
+    pass
+
+def con_sesion(actual, cambios):
+    if not actual or actual.get("sesion_activa") != SESION_ID:
+        raise SesionReemplazada("El slot pertenece a otra sesión.")
+    return {**actual, **cambios}
+
+def liberar_candado():
+    try:
+        slot_ref.transaction(lambda actual: con_sesion(actual, {"sesion_activa":""}))
+    except (Exception, SesionReemplazada):
+        pass
+atexit.register(liberar_candado)
+
+def reportar(estado_srv, progreso, mensaje, tarea_actual=None):
+    """Refleja en Realtime Database, en tiempo real, exactamente lo que está
+    pasando en los logs de este notebook (slot SLOT). RTDB usa PATCH directo
+    a la URL del nodo con .json, sin updateMask ni tipado de campos."""
+    print(mensaje)
+    try:
+        cuerpo = {
+            "estado": str(estado_srv),
+            "progreso": int(progreso),
+            "mensaje": str(mensaje),
+            "tarea_actual": str(tarea_actual or ""),
+            "sesion": SESION_ID,
+            "actualizado": int(time.time() * 1000)
+        }
+        slot_ref.transaction(lambda actual: con_sesion(actual, cuerpo))
+    except Exception as e:
+        print(f"⚠️ [REPORTAR] No se pudo avisar progreso: {e}")
+
+reportar('iniciando', 2, f"🚀 [SLOT {SLOT}] Notebook arrancó (sesión {SESION_ID}). Preparando entorno...")
+
+os.chdir('/kaggle/working/')
+
+reportar('iniciando', 6, f"📦 [SLOT {SLOT}] Instalando librerías de entorno (esto tarda ~20 segundos)...")
+# 1. Inyectamos las herramientas clásicas de compilación
+!pip install setuptools==69.5.1 wheel -q
+
+# 2. Instalamos la librería problemática obligando a la máquina a usar NUESTRAS herramientas
+!pip install basicsr -q --no-build-isolation
+
+# 3. Instalamos el resto del arsenal (agregando 'addict' que Python 3.13 omitió)
+!pip install addict facexlib lpips firebase-admin rembg onnxruntime pymatting modelscope tf-keras google-api-python-client -q
+
+reportar('iniciando', 15, f"🚀 [SLOT {SLOT}] Montando CodeFormer desde el disco local (dataset)...")
+if not os.path.exists('/kaggle/working/CodeFormer'):
+    # Buscamos la carpeta directamente (Kaggle ya la descomprimió)
+    carpetas_cf = glob.glob('/kaggle/input/**/CodeFormer_Offline', recursive=True)
+    if carpetas_cf:
+        subprocess.run(["cp", "-r", carpetas_cf[0], "/kaggle/working/CodeFormer"])
+        print("✅ [SISTEMA] CodeFormer copiado exitosamente desde el dataset.")
+    else:
+        # Respaldo en caso de emergencia
+        print("⚠️ [SLOT] Carpeta CodeFormer_Offline no encontrada, clonando desde GitHub...")
+        subprocess.run(["git", "clone", "https://github.com/sczhou/CodeFormer.git"])
+
+os.makedirs('/kaggle/working/CodeFormer/basicsr', exist_ok=True)
+with open('/kaggle/working/CodeFormer/basicsr/version.py', 'w') as f:
+    f.write("__version__ = '1.4.2'\n__gitsha__ = 'unknown'\n")
+
+os.makedirs('/kaggle/working/CodeFormer/weights/CodeFormer', exist_ok=True)
+os.makedirs('/kaggle/working/CodeFormer/weights/facelib', exist_ok=True)
+os.makedirs('/kaggle/working/CodeFormer/inputs', exist_ok=True)
+!ln -sf /kaggle/input/arsenal-modelos-ia-edicion/codeformer.pth /kaggle/working/CodeFormer/weights/CodeFormer/codeformer.pth
+
+!sed -i 's/half=True/half=False/g' /kaggle/working/CodeFormer/inference_codeformer.py
+
+reportar('iniciando', 35, f"✅ [SLOT {SLOT}] CodeFormer montado desde disco. Encendiendo servidor...")
+
+# =========================================================================
+# CELDA 2: EL QUIRÓFANO DE PRECISIÓN
+# =========================================================================
+
+import os, sys, glob, cv2, torch, numpy as np, subprocess, shutil, base64
+from PIL import Image
+import io
+from torchvision.transforms.functional import normalize
+import torch.nn.functional as F
+from rembg import remove, new_session
+from safetensors.torch import load_file
+import firebase_admin
+from firebase_admin import credentials, db as rtdb
+
+print("📚 [SISTEMA] Iniciando servidor en proceso independiente...")
+
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+print(f"⚙️ [SISTEMA] Ejecutando en modo de alta eficiencia: {device.upper()}")
+
+# ==============================================================================
+# 0. CONEXIÓN A FIREBASE (firebase-admin, solo para leer/actualizar tareas_ia;
+#    el reporte de progreso de la barra sigue usando la función reportar() de arriba)
+# ==============================================================================
+reportar('iniciando', 40, f"🔥 [SLOT {SLOT}] Conectando credenciales de Firebase RTDB...")
+class ProcesoInterrumpidoError(Exception):
+    pass
+
+_ult_chequeo_int = [0.0]
+def chequear_interrupcion(forzar=False):
+    """Consulta en Firebase si el usuario pulsó Interrumpir (máx. 1 consulta/seg)."""
+    if not forzar and time.time() - _ult_chequeo_int[0] < 1.0:
+        return False
+    _ult_chequeo_int[0] = time.time()
+    try:
+        ref_int = rtdb.reference(f'servidores/slot_{SLOT}/interrumpir')
+        if ref_int.get() is True:
+            ref_int.set(False)
+            return True
+    except Exception:
+        pass
+    return False
+
+# ==============================================================================
+# 1. CARGA DE MODELOS LIGEROS
+# ==============================================================================
+reportar('iniciando', 55, f"🧠 [SLOT {SLOT}] Enlazando motores BiRefNet desde el disco local (sin internet)...")
+
+os.makedirs('/root/.rembg/models/birefnet-general', exist_ok=True)
+os.makedirs('/root/.rembg/models/birefnet-portrait', exist_ok=True)
+
+rutas_general = glob.glob('/kaggle/input/**/birefnet-general.onnx', recursive=True)
+rutas_portrait = glob.glob('/kaggle/input/**/birefnet-portrait.onnx', recursive=True)
+
+if rutas_general:
+    subprocess.run(["ln", "-sf", rutas_general[0], "/root/.rembg/models/birefnet-general/birefnet-general.onnx"])
+else:
+    print("⚠️ [SISTEMA] birefnet-general.onnx no encontrado en el dataset, rembg intentará descargarlo de internet.")
+
+if rutas_portrait:
+    subprocess.run(["ln", "-sf", rutas_portrait[0], "/root/.rembg/models/birefnet-portrait/birefnet-portrait.onnx"])
+else:
+    print("⚠️ [SISTEMA] birefnet-portrait.onnx no encontrado en el dataset, rembg intentará descargarlo de internet.")
+
+import onnxruntime as ort
+# ONNX Runtime sin arena de RAM gigante y con pocos hilos (evita el OOM -9 al correr BiRefNet en subprocesos fork)
+def _sess_opts_bajo_consumo():
+    so = ort.SessionOptions()
+    so.enable_cpu_mem_arena = False
+    so.enable_mem_pattern = False
+    so.intra_op_num_threads = 2
+    so.inter_op_num_threads = 1
+    return so
+
+def _nueva_sesion_ligera(nombre):
+    try:
+        return new_session(nombre, sess_opts=_sess_opts_bajo_consumo())
+    except TypeError:
+        print(f"⚠️ [SISTEMA] Esta versión de rembg no acepta sess_opts; {nombre} se carga con opciones por defecto.")
+        return new_session(nombre)
+
+session_birefnet = _nueva_sesion_ligera("birefnet-general")
+print("✅ [SISTEMA] BiRefNet cargado.")
+
+# --- LaMa: modelo de inpainting profundo para "Quitar Logo IA" -------------
+# A diferencia de cv2.inpaint (Telea/Navier-Stokes, que solo promedia
+# píxeles vecinos y por eso deforma dedos, texturas de piel/ropa, etc.),
+# LaMa es una red neuronal entrenada específicamente para rellenar huecos
+# grandes entendiendo estructura, bordes y patrones. Se usa la implementación
+# oficial vía ModelScope (misma librería que DDColor) en vez de la versión
+# ONNX o de simple-lama-inpainting: ambas fallaban de forma permanente en
+# este entorno de Kaggle (ONNX con un ShapeInferenceError de DFT en la capa
+# de Fourier; simple-lama-inpainting con 'aten::empty_strided' porque su
+# checkpoint trae instrucciones CUDA grabadas). Ver el docstring de
+# ejecutar_quitar_logo() para el detalle completo.
+# Segundo modelo, entrenado específicamente para retratos de personas.
+# A veces detecta accesorios pegados al pelo/cabeza (vinchas, coronas,
+# lentes) que el modelo "general" descarta como fondo. Usamos la UNIÓN
+# de ambas máscaras para no perder esos objetos.
+session_birefnet_portrait = _nueva_sesion_ligera("birefnet-portrait")
+print("✅ [SISTEMA] BiRefNet (retrato) cargado.")
+
+# --- Enlazando pesos pesados de ModelScope (DDColor y LaMa) desde disco local ---
+reportar('iniciando', 75, f"🧠 [SLOT {SLOT}] Enlazando pesos de ModelScope desde disco local...")
+os.makedirs('/root/.cache/modelscope/hub/damo/cv_ddcolor_image-colorization', exist_ok=True)
+os.makedirs('/root/.cache/modelscope/hub/damo/cv_fft_inpainting_lama', exist_ok=True)
+
+rutas_ddcolor = glob.glob('/kaggle/input/**/ddcolor_pytorch_model.pt', recursive=True)
+rutas_lama = glob.glob('/kaggle/input/**/lama_pytorch_model.pt', recursive=True)
+
+if rutas_ddcolor:
+    subprocess.run(["ln", "-sf", rutas_ddcolor[0], "/root/.cache/modelscope/hub/damo/cv_ddcolor_image-colorization/pytorch_model.pt"])
+    print("✅ [SISTEMA] DDColor vinculado desde disco local.")
+    
+if rutas_lama:
+    subprocess.run(["ln", "-sf", rutas_lama[0], "/root/.cache/modelscope/hub/damo/cv_fft_inpainting_lama/pytorch_model.pt"])
+    print("✅ [SISTEMA] LaMa vinculado desde disco local.")
+
+reportar('iniciando', 80, f"🎨 [SLOT {SLOT}] Cargando Genio del Color (DDColor)...")
+from modelscope.pipelines import pipeline
+from modelscope.utils.constant import Tasks
+
+# Descarga los pesos (~300MB) la primera vez y los deja listos en RAM
+colorizador_ddcolor = pipeline(Tasks.image_colorization, model='damo/cv_ddcolor_image-colorization')
+print("✅ [SISTEMA] DDColor cargado en memoria.")
+
+DIRECTORIO_MODELO_BRIA = '/kaggle/working/modelo_bria'
+os.makedirs(DIRECTORIO_MODELO_BRIA, exist_ok=True)
+
+# --- Carga de BRIA a máxima velocidad (copia local desde dataset) ---
+# Antes se descargaba por HTTP desde Hugging Face en cada arranque; ahora
+# se copia directo del dataset "arsenal-modelos-ia-edicion" ya adjunto al
+# notebook, así el arranque tarda segundos en vez de minutos y no depende
+# de que Hugging Face esté disponible.
+#
+# Usamos glob recursivo en vez de una ruta fija porque Kaggle a veces
+# anida el contenido bajo una subcarpeta con el nombre original al crear
+# una nueva versión del dataset (ej. .../arsenal-modelos-ia-edicion/
+# actualizacion_dataset/briarmbg.py en vez de .../arsenal-modelos-ia-edicion/
+# briarmbg.py), así que buscamos el archivo esté donde esté.
+reportar('iniciando', 45, f"⬇️ [SLOT {SLOT}] Copiando modelo BRIA RMBG-1.4 desde dataset local...")
+
+rutas_bria = glob.glob('/kaggle/input/**/briarmbg.py', recursive=True)
+
+if rutas_bria:
+    carpeta_base_bria = os.path.dirname(rutas_bria[0])
+    shutil.copy(os.path.join(carpeta_base_bria, "briarmbg.py"), os.path.join(DIRECTORIO_MODELO_BRIA, "briarmbg.py"))
+    shutil.copy(os.path.join(carpeta_base_bria, "MyConfig.py"), os.path.join(DIRECTORIO_MODELO_BRIA, "MyConfig.py"))
+    shutil.copy(os.path.join(carpeta_base_bria, "model.safetensors"), os.path.join(DIRECTORIO_MODELO_BRIA, "model.safetensors"))
+    print(f"✅ [SISTEMA] Modelos BRIA encontrados y copiados desde: {carpeta_base_bria}")
+else:
+    print("⚠️ [SISTEMA] Archivos de BRIA no encontrados (Kaggle aún no refresca el dataset). Se detendrá el proceso.")
+
+ruta_script = os.path.join(DIRECTORIO_MODELO_BRIA, "briarmbg.py")
+if os.path.exists(ruta_script):
+    with open(ruta_script, 'r') as f:
+        codigo = f.read()
+    if "from .MyConfig" in codigo:
+        with open(ruta_script, 'w') as f:
+            f.write(codigo.replace("from .MyConfig", "from MyConfig"))
+
+if DIRECTORIO_MODELO_BRIA not in sys.path:
+    sys.path.append(DIRECTORIO_MODELO_BRIA)
+
+reportar('iniciando', 70, f"🧠 [SLOT {SLOT}] Cargando pesos del modelo en memoria ({device.upper()})...")
+from briarmbg import BriaRMBG
+net_bria = BriaRMBG()
+net_bria.load_state_dict(load_file(os.path.join(DIRECTORIO_MODELO_BRIA, "model.safetensors"), device='cpu'))
+net_bria.to(device)
+net_bria.eval()
+
+
+# ==============================================================================
+# 2. HERRAMIENTAS DE PRECISIÓN
+# ==============================================================================
+def _sigma_micro(alto, ancho):
+    """Frontera entre 'anatomía' (arrugas, pliegues, bolsas, lunares) y 'micro-detalle' (poros, pestañas).
+    Proporcional al tamaño pero acotada: en fotos grandes un sigma proporcional se comería las arrugas."""
+    return float(np.clip(min(alto, ancho) * 0.0012, 1.4, 3.0))
+
+def forzar_color_original(ruta_original, ruta_restaurada, fidelidad_anatomica=0.35):
+    """
+    Separación en 3 bandas + blindaje de arrugas / edad biológica:
+    1. Color (A y B): 100% de la foto original.
+    2. Frecuencia baja y MEDIA de L (forma del rostro + arrugas, pliegues, ojeras, lunares):
+       100% de la foto original, con un sigma corto para que ninguna arruga se derrita.
+    3. Rescate asimétrico de surcos: la IA (CodeFormer / Real-ESRGAN) no puede aclarar ni
+       'rellenar' un surco oscuro que sí existía en la original.
+    4. Micro-detalle (alta frecuencia): de la IA (iris, pestañas, cejas, poros).
+    """
+    import cv2
+    img_orig = cv2.imread(ruta_original)
+    img_rest = cv2.imread(ruta_restaurada)
+    if img_orig is None or img_rest is None:
+        return ruta_restaurada
+
+    alto, ancho = img_rest.shape[:2]
+    img_orig_escalada = cv2.resize(img_orig, (ancho, alto), interpolation=cv2.INTER_LANCZOS4)
+    lab_orig = cv2.cvtColor(img_orig_escalada, cv2.COLOR_BGR2LAB)
+    lab_rest = cv2.cvtColor(img_rest, cv2.COLOR_BGR2LAB)
+    L_orig = lab_orig[:, :, 0].astype(np.float32)
+    L_rest = lab_rest[:, :, 0].astype(np.float32)
+
+    # Limpieza ultra-sutil: sigmaColor=4 quita solo el granulado (1-3 niveles) y deja arrugas, poros y manchas
+    # (con sigmaColor=18 el filtro tomaba las arrugas por ruido JPEG y las borraba).
+    L_orig_limpia = cv2.bilateralFilter(L_orig, d=5, sigmaColor=4, sigmaSpace=5)
+
+    sigma_micro = _sigma_micro(alto, ancho)
+    anatomia_orig = cv2.GaussianBlur(L_orig_limpia, (0, 0), sigmaX=sigma_micro)
+    anatomia_rest = cv2.GaussianBlur(L_rest, (0, 0), sigmaX=sigma_micro)
+    micro_detalle_ia = L_rest - anatomia_rest
+    micro_detalle_orig = L_orig_limpia - anatomia_orig
+
+    # Surcos: zonas donde la anatomía original está por DEBAJO de su entorno (arrugas, lunares, líneas de expresión)
+    sigma_arrugas = max(6.0, min(ancho, alto) * 0.012)
+    macro_orig = cv2.GaussianBlur(L_orig_limpia, (0, 0), sigmaX=sigma_arrugas)
+    surco_original = np.clip(anatomia_orig - macro_orig, -12.0, 0.0)   # tope: no oscurecer pelo/cejas de más
+
+    # Si la original tiene un detalle más oscuro que el de la IA (surco que la IA quiso aclarar), manda la original
+    micro_combinado = np.where(
+        micro_detalle_orig < micro_detalle_ia - 1.5,
+        micro_detalle_orig * 0.70 + micro_detalle_ia * 0.30,
+        micro_detalle_ia * 0.85 + micro_detalle_orig * 0.15
+    )
+
+    L_reconstruida = anatomia_orig + micro_combinado + (surco_original * 0.10)
+    L_final = L_reconstruida * (1.0 - fidelidad_anatomica) + L_orig_limpia * fidelidad_anatomica
+    L_final = np.clip(L_final + 0.5, 0, 255).astype(np.uint8)
+
+    A_orig = cv2.GaussianBlur(lab_orig[:, :, 1], (3, 3), 0)
+    B_orig = cv2.GaussianBlur(lab_orig[:, :, 2], (3, 3), 0)
+    cv2.imwrite(ruta_restaurada, cv2.cvtColor(cv2.merge((L_final, A_orig, B_orig)), cv2.COLOR_LAB2BGR))
+    return ruta_restaurada
+
+def ejecutar_fase_0_encuadre(ruta_input):
+    if not ruta_input: return None
+    img_bgr = cv2.imread(ruta_input)
+    if img_bgr is None: return None
+    img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    alto_img, ancho_img, _ = img_rgb.shape
+    orig_im = Image.fromarray(img_rgb)
+    im_resized = orig_im.resize([512, 512], Image.BILINEAR)
+    im_tensor = torch.from_numpy(np.array(im_resized)).permute(2, 0, 1).float().divide(255)
+    im_tensor = normalize(im_tensor, [0.5, 0.5, 0.5], [1.0, 1.0, 1.0]).unsqueeze(0).to(device)
+
+    with torch.no_grad(): result = net_bria(im_tensor)
+
+    def extraer_tensor(obj): return obj if isinstance(obj, torch.Tensor) else extraer_tensor(obj[0])
+
+    mascara = F.interpolate(extraer_tensor(result), size=(alto_img, ancho_img), mode='bilinear', align_corners=False).squeeze()
+    ma, mi = torch.max(mascara), torch.min(mascara)
+    mascara = (mascara - mi) / (ma - mi)
+    mask_np = (mascara * 255).cpu().data.numpy().astype(np.uint8)
+
+    y_indices, x_indices = np.where(mask_np > 50)
+    if len(y_indices) > 0:
+        x_min, x_max = x_indices.min(), x_indices.max()
+        y_min, y_max = y_indices.min(), y_indices.max()
+        ancho_sujetos, alto_sujetos = x_max - x_min, y_max - y_min
+        y1 = y_min - int(alto_sujetos * 0.35)
+        y2 = y_max + int(alto_sujetos * 0.60)
+        x1 = x_min - int(ancho_sujetos * 0.30)
+        x2 = x_max + int(ancho_sujetos * 0.30)
+        pad_top = max(0, -y1)
+        pad_bottom = max(0, y2 - alto_img)
+        pad_left = max(0, -x1)
+        pad_right = max(0, x2 - ancho_img)
+        img_padded = cv2.copyMakeBorder(img_rgb, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=[0, 0, 0])
+        new_y1, new_y2 = y1 + pad_top, y2 + pad_top
+        new_x1, new_x2 = x1 + pad_left, x2 + pad_left
+        img_encuadrada = img_padded[new_y1:new_y2, new_x1:new_x2]
+    else:
+        img_encuadrada = img_rgb
+
+    ruta_salida = '/kaggle/working/foto_preparada.png'
+    cv2.imwrite(ruta_salida, cv2.cvtColor(img_encuadrada, cv2.COLOR_RGB2BGR))
+    return ruta_salida
+
+# ==============================================================================
+# RESTAURACIÓN DE ROSTRO (CodeFormer a elección + mejora matemática siempre)
+# ------------------------------------------------------------------------------
+# El usuario elige con una casilla si se usa CodeFormer. Después, SIEMPRE se aplica
+# la mejora matemática encima: Real-ESRGAN x2 + color/anatomía de la original +
+# micro-textura. Si el rostro es mayor que lo que CodeFormer admite (512 px), la
+# foto se reduce antes de CodeFormer y Real-ESRGAN la vuelve a ampliar después.
+# (Las funciones de clasificación automática siguen definidas pero ya no se usan.)
+# ==============================================================================
+RESTAURACION_INTELIGENTE = True    # False = vuelve siempre al flujo clásico (CodeFormer)
+UMBRAL_CARA_GRANDE_PX = 500        # lado mayor de la caja del rostro desde el cual CodeFormer ya no suma píxeles
+UMBRAL_NITIDEZ_LAP = 80.0          # varianza del Laplaciano (rostro normalizado a 256 px). Ajustar mirando el log
+MAX_LADO_ESRGAN_PX = 2400          # foto más grande que esto: no se amplía (ya es enorme y la CPU sufriría)
+TILE_ESRGAN = 400                  # tamaño del tile de Real-ESRGAN en CPU
+LADO_CARA_CODEFORMER_PX = 450      # rostro mayor que esto: se reduce la foto para que CodeFormer (512x512) no lo aplaste. Subir/bajar a gusto
+W_CODEFORMER_MIN = 0.90            # piso de fidelidad de CodeFormer (alto = usa tokens de textura real, menos 'cara joven')
+
+def _nitidez_laplaciana(img_bgr, caja):
+    """Varianza del Laplaciano del rostro, normalizado a 256x256 para que no dependa del tamaño."""
+    h, w = img_bgr.shape[:2]
+    x1, y1, x2, y2 = [int(round(v)) for v in caja]
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(w, x2), min(h, y2)
+    if x2 - x1 < 16 or y2 - y1 < 16:
+        return 0.0
+    gris = cv2.cvtColor(img_bgr[y1:y2, x1:x2], cv2.COLOR_BGR2GRAY)
+    interp = cv2.INTER_AREA if max(gris.shape) > 256 else cv2.INTER_LINEAR
+    gris = cv2.resize(gris, (256, 256), interpolation=interp)
+    return float(cv2.Laplacian(gris, cv2.CV_64F).var())
+
+def _clasificar_rostro(lado_cara, nitidez):
+    """Decide el camino según el tamaño del rostro y su nitidez."""
+    if lado_cara >= UMBRAL_CARA_GRANDE_PX:
+        return 'esrgan' if nitidez >= UMBRAL_NITIDEZ_LAP else 'hibrido'
+    return 'codeformer'
+
+_SCRIPT_DETECTOR = """import sys, json, cv2
+from facexlib.utils.face_restoration_helper import FaceRestoreHelper
+ruta_in, ruta_json, dispositivo = sys.argv[1], sys.argv[2], sys.argv[3]
+img = cv2.imread(ruta_in)
+cajas = []
+if img is not None:
+    h, w = img.shape[:2]
+    esc = min(1.0, 1600.0 / max(h, w))
+    img_det = cv2.resize(img, (int(w * esc), int(h * esc)), interpolation=cv2.INTER_AREA) if esc < 1.0 else img
+    helper = FaceRestoreHelper(upscale_factor=1, face_size=512, crop_ratio=(1, 1),
+                               det_model='retinaface_resnet50', save_ext='png',
+                               use_parse=False, device=dispositivo)
+    helper.read_image(img_det)
+    n = helper.get_face_landmarks_5(only_center_face=False, resize=640)
+    if n > 0:
+        cajas = [[float(v) / esc for v in d[:4]] for d in helper.det_faces]
+json.dump(cajas, open(ruta_json, 'w'))
+"""
+
+def _cajas_rostro_en_subproceso(ruta_img, timeout=300):
+    """Cajas [x1,y1,x2,y2] (coords de la imagen original) de todos los rostros (facexlib).
+    Corre en un intérprete NUEVO con tiempo límite, igual que CodeFormer: un fork() con PyTorch ya cargado
+    en el proceso principal puede quedarse bloqueado para siempre (el notebook se 'colgaba' aquí).
+    Si algo falla o expira devuelve [] y el flujo sigue sin esta ayuda."""
+    import json
+    ruta_script = '/kaggle/working/detector_rostro.py'
+    ruta_json = f'/kaggle/working/cajas_rostro_{os.getpid()}.json'
+    try:
+        with open(ruta_script, 'w') as f:
+            f.write(_SCRIPT_DETECTOR)
+        if os.path.exists(ruta_json): os.remove(ruta_json)
+        proc = subprocess.Popen(["python", ruta_script, ruta_img, ruta_json, str(device)])
+        t_start = time.time()
+        while proc.poll() is None:
+            if chequear_interrupcion():
+                proc.terminate(); proc.wait()
+                raise ProcesoInterrumpidoError("Cancelado durante detección de rostro")
+            if time.time() - t_start > timeout:
+                proc.terminate(); proc.wait()
+                raise subprocess.TimeoutExpired(proc.args, timeout)
+            time.sleep(0.5)
+        with open(ruta_json) as f:
+            return [np.array(c, dtype=np.float64) for c in json.load(f)]
+    except subprocess.TimeoutExpired:
+        print(f"⚠️ [ROSTRO] El detector de rostros superó {timeout}s; se continúa sin él.")
+    except Exception as e:
+        print(f"⚠️ [ROSTRO] El detector de rostros falló ({e}); se continúa sin él.")
+    finally:
+        if os.path.exists(ruta_json): os.remove(ruta_json)
+    return []
+
+def _medir_rostro(ruta):
+    """Devuelve (lado_mayor_px, nitidez_laplaciana) del rostro más grande, o None."""
+    img = cv2.imread(ruta)
+    if img is None:
+        return None
+    cajas = _cajas_rostro_en_subproceso(ruta)
+    if not cajas:
+        return None
+    caja = max(cajas, key=lambda c: (c[2] - c[0]) * (c[3] - c[1]))
+    lado = float(max(caja[2] - caja[0], caja[3] - caja[1]))
+    return lado, _nitidez_laplaciana(img, caja)
+
+def _recortar_rostro_principal(ruta_in, ruta_out, margen=1.9):
+    """Recorta (a resolución original) un cuadrado centrado en el rostro más grande, con margen
+    para frente/pelo/cuello. Sirve de 'referencia' cuando el usuario sube UNA sola foto:
+    CodeFormer/Real-ESRGAN trabajan sobre el recorte (rápido y sin gastar RAM en toda la foto)."""
+    img = cv2.imread(ruta_in)
+    if img is None:
+        return False
+    cajas = _cajas_rostro_en_subproceso(ruta_in)
+    if not cajas:
+        return False
+    x1, y1, x2, y2 = max(cajas, key=lambda c: (c[2] - c[0]) * (c[3] - c[1]))
+    h, w = img.shape[:2]
+    lado = max(x2 - x1, y2 - y1) * margen
+    cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+    lado = min(lado, w, h)                                  # cuadrado que cabe en la foto
+    X1 = int(round(min(max(0, cx - lado / 2), w - lado)))
+    Y1 = int(round(min(max(0, cy - lado / 2), h - lado)))
+    L = int(round(lado))
+    cv2.imwrite(ruta_out, img[Y1:Y1 + L, X1:X1 + L])
+    return True
+
+def _referencia_desde_foto_unica(ruta_input, ruta_out):
+    """Prepara la referencia de rostro a partir de la propia foto (cuando no se subió una aparte).
+    Devuelve la ruta lista para ejecutar_fase_1_restauracion, o None si no se pudo."""
+    try:
+        if _recortar_rostro_principal(ruta_input, ruta_out):
+            return ruta_out
+    except Exception as e:
+        print(f"⚠️ [ROSTRO] No se pudo recortar el rostro de la foto ({e}).")
+    # sin rostro detectable: la foto completa (limitada para que la CPU aguante)
+    img = cv2.imread(ruta_input)
+    if img is None:
+        return None
+    h, w = img.shape[:2]
+    if max(h, w) > MAX_LADO_ESRGAN_PX:
+        e = MAX_LADO_ESRGAN_PX / float(max(h, w))
+        img = cv2.resize(img, (int(w * e), int(h * e)), interpolation=cv2.INTER_AREA)
+    cv2.imwrite(ruta_out, img)
+    return ruta_out
+
+def _decidir_modo_restauracion(ruta_input):
+    if not RESTAURACION_INTELIGENTE:
+        return 'codeformer'
+    try:
+        info = _medir_rostro(ruta_input)
+    except Exception as e:
+        print(f"⚠️ [ROSTRO] No se pudo medir el rostro ({e}); se usa CodeFormer como siempre.")
+        return 'codeformer'
+    if not info:
+        print("⚠️ [ROSTRO] Sin rostro detectable; se usa CodeFormer como siempre.")
+        return 'codeformer'
+    lado, nit = info
+    modo = _clasificar_rostro(lado, nit)
+    print(f"🔎 [ROSTRO] Caja ≈ {lado:.0f}px | nitidez Laplaciana = {nit:.1f} (umbral {UMBRAL_NITIDEZ_LAP:.0f}) -> modo '{modo}'")
+    return modo
+
+_SCRIPT_ESRGAN = """import sys, glob, cv2
+from basicsr.archs.rrdbnet_arch import RRDBNet
+from basicsr.utils.realesrgan_utils import RealESRGANer
+ruta_in, ruta_out, tile = sys.argv[1], sys.argv[2], int(sys.argv[3])
+locales = glob.glob('/kaggle/input/**/RealESRGAN_x2plus.pth', recursive=True)
+pesos = locales[0] if locales else 'https://github.com/sczhou/CodeFormer/releases/download/v0.1.0/RealESRGAN_x2plus.pth'
+modelo = RRDBNet(num_in_ch=3, num_out_ch=3, num_feat=64, num_block=23, num_grow_ch=32, scale=2)
+up = RealESRGANer(scale=2, model_path=pesos, model=modelo, tile=tile, tile_pad=40, pre_pad=0, half=False)
+img = cv2.imread(ruta_in, cv2.IMREAD_COLOR)
+salida, _ = up.enhance(img, outscale=2)
+cv2.imwrite(ruta_out, salida)
+"""
+
+def _ampliar_esrgan(ruta_input, ruta_out):
+    """Real-ESRGAN x2 sobre la imagen completa (por tiles). Si falla, Lanczos x2. Devuelve True si hubo ampliación."""
+    img = cv2.imread(ruta_input)
+    h, w = img.shape[:2]
+    if max(h, w) > MAX_LADO_ESRGAN_PX:
+        print(f"ℹ️ [ROSTRO] La foto ya mide {max(h, w)}px (> {MAX_LADO_ESRGAN_PX}); no se amplía, solo se realza la micro-textura.")
+        cv2.imwrite(ruta_out, img)
+        return False
+    ruta_script = '/kaggle/working/CodeFormer/esrgan_solo.py'
+    with open(ruta_script, 'w') as f:
+        f.write(_SCRIPT_ESRGAN)
+    if os.path.exists(ruta_out): os.remove(ruta_out)
+    try:
+        print("🔬 [ROSTRO] Real-ESRGAN x2 (rostro grande y nítido: se omite CodeFormer)...")
+        proc = subprocess.Popen(["python", "esrgan_solo.py", ruta_input, ruta_out, str(TILE_ESRGAN)],
+                                cwd="/kaggle/working/CodeFormer")
+        t_start = time.time()
+        while proc.poll() is None:
+            if chequear_interrupcion():
+                proc.terminate(); proc.wait()
+                raise ProcesoInterrumpidoError("Cancelado durante ampliación ESRGAN")
+            if time.time() - t_start > 900:
+                proc.terminate(); proc.wait()
+                raise subprocess.TimeoutExpired(proc.args, 900)
+            time.sleep(0.5)
+    except ProcesoInterrumpidoError:
+        raise
+    except Exception as e:
+        print(f"⚠️ [ROSTRO] Real-ESRGAN falló/expiró ({e}).")
+    if os.path.exists(ruta_out) and cv2.imread(ruta_out) is not None:
+        return True
+    print("⚠️ [ROSTRO] Sin salida de Real-ESRGAN; se amplía con Lanczos x2.")
+    cv2.imwrite(ruta_out, cv2.resize(img, (w * 2, h * 2), interpolation=cv2.INTER_LANCZOS4))
+    return True
+
+def _micro_textura_archivo(ruta, fuerza=0.30, radio_sigma=1.0):
+    """Realce de micro-textura (iris, cejas, poros) solo en el canal L de LAB, sin ruido de color."""
+    img = cv2.imread(ruta)
+    if img is None:
+        return ruta
+    rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    rgb = _aplicar_nitidez_imprenta_lab(rgb, fuerza=fuerza, radio_sigma=radio_sigma)
+    cv2.imwrite(ruta, cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR))
+    return ruta
+
+def _fusion_max_gradiente(ruta_original, ruta_restaurada):
+    """Fusión por frecuencias con máximo local de micro-contraste y blindaje de arrugas."""
+    img_o = cv2.imread(ruta_original)
+    img_r = cv2.imread(ruta_restaurada)
+    if img_o is None or img_r is None:
+        return ruta_restaurada
+    h, w = img_r.shape[:2]
+    img_o = cv2.resize(img_o, (w, h), interpolation=cv2.INTER_LANCZOS4)
+    lab_o = cv2.cvtColor(img_o, cv2.COLOR_BGR2LAB)
+    lab_r = cv2.cvtColor(img_r, cv2.COLOR_BGR2LAB)
+    Lo = lab_o[:, :, 0].astype(np.float32)
+    Lr = lab_r[:, :, 0].astype(np.float32)
+
+    sig = _sigma_micro(h, w)                         # corto: toda arruga queda grabada en base_o
+    base_o = cv2.GaussianBlur(Lo, (0, 0), sig)
+    hf_o = Lo - base_o
+    hf_r = Lr - cv2.GaussianBlur(Lr, (0, 0), sig)
+
+    sig_e = max(2.0, sig * 1.5)
+    e_o = cv2.GaussianBlur(np.abs(hf_o), (0, 0), sig_e)
+    e_r = cv2.GaussianBlur(np.abs(hf_r), (0, 0), sig_e)
+    tau = 0.25 * float((e_o + e_r).mean()) + 1e-3
+    w_r = 1.0 / (1.0 + np.exp(-np.clip((e_r - e_o) / tau, -30.0, 30.0)))
+    hf = hf_o * (1.0 - w_r) + hf_r * w_r
+
+    # La IA no puede borrar micro-surcos oscuros (arrugas finas, poros) que sí estaban en la original
+    hf = np.where(hf_o < hf - 1.5, hf_o * 0.75 + hf * 0.25, hf)
+
+    L_final = np.clip(base_o + hf + 0.5, 0, 255).astype(np.uint8)
+    A = cv2.GaussianBlur(lab_o[:, :, 1], (3, 3), 0)
+    B = cv2.GaussianBlur(lab_o[:, :, 2], (3, 3), 0)
+    cv2.imwrite(ruta_restaurada, cv2.cvtColor(cv2.merge((L_final, A, B)), cv2.COLOR_LAB2BGR))
+    return ruta_restaurada
+
+def _mejora_matematica_final(ruta_original, ruta_base=None, mantener_color_original=True):
+    """Mejora 'matemática' que se aplica SIEMPRE, con o sin CodeFormer:
+    Real-ESRGAN x2 (por tiles, sin el límite de 512 px) + color/anatomía de la original + micro-textura en L.
+    - Sin CodeFormer: ruta_base es None y se trabaja sobre la original.
+    - Con CodeFormer: ruta_base es el resultado de CodeFormer y la mejora se pasa ENCIMA."""
+    fuente = ruta_base if (ruta_base and os.path.exists(ruta_base)) else ruta_original
+    ruta_out = '/kaggle/working/rostro_esrgan.png'
+    _ampliar_esrgan(fuente, ruta_out)
+    # Real-ESRGAN alisa la piel: la anatomía (arrugas, pliegues, lunares) y el color se toman de la original;
+    # de la IA solo entra el micro-detalle. Sin CodeFormer se hace siempre; con CodeFormer, solo si el
+    # usuario pidió mantener el color original.
+    if ruta_base is None or mantener_color_original:
+        forzar_color_original(ruta_original, ruta_out, fidelidad_anatomica=0.25)
+    _micro_textura_archivo(ruta_out, fuerza=0.30, radio_sigma=1.0)
+    return ruta_out
+
+def _restaurar_con_codeformer(ruta_input, fidelidad=0.5, mantener_color_original=True):
+    """CodeFormer forzado por el usuario. Si el rostro mide más de LADO_CARA_CODEFORMER_PX, la foto se
+    REDUCE antes (CodeFormer trabaja a 512x512: un rostro más grande se aplastaría y se pegaría borroso).
+    Devuelve la ruta del resultado o None."""
+    carpeta_resultados_base = '/kaggle/working/CodeFormer/results'
+    if os.path.exists(carpeta_resultados_base): shutil.rmtree(carpeta_resultados_base)
+    ruta_destino = '/kaggle/working/CodeFormer/inputs/input_actual.png'
+    os.makedirs('/kaggle/working/CodeFormer/inputs', exist_ok=True)
+
+    ajustada = False
+    try:
+        info = _medir_rostro(ruta_input)
+        if info and info[0] > LADO_CARA_CODEFORMER_PX:
+            img = cv2.imread(ruta_input)
+            esc = LADO_CARA_CODEFORMER_PX / float(info[0])
+            h, w = img.shape[:2]
+            img = cv2.resize(img, (max(1, int(round(w * esc))), max(1, int(round(h * esc)))), interpolation=cv2.INTER_AREA)
+            cv2.imwrite(ruta_destino, img)
+            ajustada = True
+            print(f"📐 [ROSTRO] Rostro de {info[0]:.0f}px > {LADO_CARA_CODEFORMER_PX}px: foto reducida x{esc:.2f} para CodeFormer ({w}x{h} -> {img.shape[1]}x{img.shape[0]}).")
+        elif info:
+            print(f"ℹ️ [ROSTRO] Rostro de {info[0]:.0f}px: cabe en CodeFormer, no se reduce.")
+    except ProcesoInterrumpidoError:
+        raise
+    except Exception as e:
+        print(f"⚠️ [ROSTRO] No se pudo medir/reducir el rostro ({e}); CodeFormer recibe la foto tal cual.")
+    if not ajustada:
+        shutil.copy(ruta_input, ruta_destino)
+
+    # Sin --face_upsample (pule poros y deja la cara plástica). Piso de fidelidad alto: en CodeFormer
+    # w alto = más fiel a los rasgos reales (CodeFormer tiende a rejuvenecer con w bajo).
+    w_seguro = max(W_CODEFORMER_MIN, float(fidelidad))
+    comando = ["python", "inference_codeformer.py", "-w", str(w_seguro), "--input_path", "inputs/input_actual.png", "--bg_upsampler", "realesrgan"]
+    proc = subprocess.Popen(comando, cwd="/kaggle/working/CodeFormer")
+    while proc.poll() is None:
+        if chequear_interrupcion():
+            proc.terminate(); proc.wait()
+            raise ProcesoInterrumpidoError("Cancelado durante CodeFormer")
+        time.sleep(0.5)
+
+    archivos_generados = glob.glob('/kaggle/working/CodeFormer/results/**/final_results/*.png', recursive=True)
+    if not archivos_generados:
+        return None
+    ruta_final = archivos_generados[0]
+    if mantener_color_original:
+        # 🔥 Cura contra los ojos azules de CodeFormer (en Fase 1, ANTES de la corrección anti-naranja de Fase 5)
+        return forzar_color_original(ruta_input, ruta_final)
+    return ruta_final
+
+def ejecutar_fase_1_restauracion(ruta_input, fidelidad=0.5, mantener_color_original=True, usar_codeformer=True):
+    """El USUARIO decide si se usa CodeFormer (ya no hay compuerta automática).
+    La mejora Real-ESRGAN + micro-textura se aplica SIEMPRE: encima de CodeFormer, o sola si no se usa."""
+    if not ruta_input: return None
+
+    ruta_base = None
+    if usar_codeformer:
+        print("✨ [ROSTRO] CodeFormer ACTIVADO por el usuario.")
+        try:
+            ruta_base = _restaurar_con_codeformer(ruta_input, fidelidad, mantener_color_original)
+        except ProcesoInterrumpidoError:
+            raise
+        except Exception as e:
+            print(f"⚠️ [ROSTRO] CodeFormer falló ({e}); se continúa solo con la mejora matemática.")
+        if not ruta_base:
+            print("⚠️ [ROSTRO] CodeFormer no devolvió resultado; se continúa solo con la mejora matemática.")
+    else:
+        print("⏭️ [ROSTRO] CodeFormer DESACTIVADO por el usuario: solo mejora matemática (Real-ESRGAN).")
+
+    try:
+        return _mejora_matematica_final(ruta_input, ruta_base, mantener_color_original)
+    except ProcesoInterrumpidoError:
+        raise
+    except Exception as e:
+        print(f"⚠️ [ROSTRO] Falló la mejora matemática ({e}); se devuelve el resultado previo.")
+        return ruta_base
+
+def _guided_filter(I, p, r, eps=1e-4):
+    """Filtro guiado: obliga la máscara (p) a calcar la estructura de la foto (I, gris)."""
+    bf = lambda x: cv2.boxFilter(x, cv2.CV_32F, (r, r))
+    mean_I, mean_p = bf(I), bf(p)
+    var_I = bf(I * I) - mean_I * mean_I
+    cov_Ip = bf(I * p) - mean_I * mean_p
+    a = cov_Ip / (var_I + eps)
+    b = mean_p - a * mean_I
+    return bf(a) * I + bf(b)
+
+def _propagar_color_interno(img, mask, niveles=5):
+    """Propaga el color puro del interior del sujeto (mask=1) hacia afuera con una
+    pirámide multiescala de convolución normalizada. Devuelve None si no hay núcleo
+    suficiente. img: (H,W) o (H,W,C) float32; mask: (H,W) o (H,W,1) float32."""
+    eps = 1e-6
+    h0, w0 = img.shape[:2]
+    mask = mask.reshape(h0, w0).astype(np.float32)
+    if float(mask.sum()) < 16:
+        return None
+    es_2d = img.ndim == 2
+    if es_2d:
+        img = img[:, :, None]
+    img = img.astype(np.float32)
+
+    def _pd(x):
+        y = cv2.pyrDown(x)
+        return y.reshape(y.shape[0], y.shape[1], -1)
+
+    def _pu(x, size_wh):
+        y = cv2.pyrUp(x, dstsize=size_wh)
+        return y.reshape(y.shape[0], y.shape[1], -1)
+
+    num = img * mask[:, :, None]
+    den = mask[:, :, None].copy()
+    pir_c, pir_w = [num], [den]
+    for _ in range(niveles):
+        if min(pir_c[-1].shape[:2]) < 4:
+            break
+        pir_c.append(_pd(pir_c[-1]))
+        pir_w.append(_pd(pir_w[-1]))
+
+    c_actual = pir_c[-1] / np.maximum(pir_w[-1], eps)
+    for i in range(len(pir_c) - 2, -1, -1):
+        h_i, w_i = pir_c[i].shape[:2]
+        c_up = _pu(c_actual, (w_i, h_i))
+        c_local = pir_c[i] / np.maximum(pir_w[i], eps)
+        conf = np.clip(pir_w[i] / 0.15, 0.0, 1.0)
+        c_actual = c_local * conf + c_up * (1.0 - conf)
+
+    c_actual = np.clip(c_actual, 0.0, 1.0).astype(np.float32)
+    return c_actual[:, :, 0] if es_2d else c_actual
+
+def _erosion_dt(mascara_bool, radio):
+    """Erosión circular rápida por transformada de distancia (O(N), sin kernels gigantes)."""
+    m = (mascara_bool > 0).astype(np.uint8)
+    d = cv2.distanceTransform(m, cv2.DIST_L2, 3)
+    return (d > radio).astype(np.float32)
+
+def _alpha_birefnet(np_img):
+    """Silueta base: fusión BiRefNet Portrait + General. Devuelve alpha_raw float32 [H,W] a tamaño completo."""
+    import gc
+    alto_img, ancho_img = np_img.shape[:2]
+    lado = max(alto_img, ancho_img)
+    img_uint8 = np.clip(np_img * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+    print("🧠 [RECORTE] Extrayendo silueta de alta precisión (BiRefNet)...")
+    MAX_BIREF = 1536
+    if lado > MAX_BIREF:
+        esc_b = MAX_BIREF / float(lado)
+        w_b, h_b = max(8, int(ancho_img * esc_b)), max(8, int(alto_img * esc_b))
+        im_biref = Image.fromarray(cv2.resize(img_uint8, (w_b, h_b), interpolation=cv2.INTER_AREA), mode='RGB').convert('RGBA')
+    else:
+        im_biref = Image.fromarray(img_uint8, mode='RGB').convert('RGBA')
+    del img_uint8
+
+    mask_portrait = np.array(remove(im_biref, session=session_birefnet_portrait, only_mask=True)).astype(np.float32) / 255.0
+    gc.collect()
+    mask_general = np.array(remove(im_biref, session=session_birefnet, only_mask=True)).astype(np.float32) / 255.0
+    del im_biref
+    gc.collect()
+
+    # 'portrait' manda en cabello fino; 'general' solo suma objetos donde tiene certeza alta
+    extra_objetos = np.clip((mask_general - 0.50) / 0.35, 0.0, 1.0) * mask_general
+    alpha_raw = np.maximum(mask_portrait, extra_objetos).astype(np.float32)
+    del mask_general, mask_portrait, extra_objetos
+    if alpha_raw.shape[:2] != (alto_img, ancho_img):
+        # LANCZOS/CUBIC puede sobrepasar [0,1]; se recorta
+        alpha_raw = np.clip(cv2.resize(alpha_raw, (ancho_img, alto_img), interpolation=cv2.INTER_CUBIC), 0.0, 1.0)
+    gc.collect()
+    return alpha_raw
+
+def _linea_hombros(alpha_raw):
+    """Mantenida por compatibilidad. Devuelve (y_top, y_hombro)."""
+    ancho = (alpha_raw > 0.5).sum(axis=1).astype(np.float32)
+    filas = np.where(ancho > 0)[0]
+    if filas.size == 0:
+        return 0, 0
+    y_top, y_bot = int(filas.min()), int(filas.max())
+    alto = max(1, y_bot - y_top)
+    return y_top, y_top + int(0.55 * alto)
+
+def _suavizar_bordes_duros(alpha, alpha_raw, lado):
+    """Sin efecto: el contorno de BiRefNet se respeta tal cual (compatibilidad)."""
+    return alpha
+
+def _refinar_alpha_y_color(np_img, alpha_raw, fuerza_spill=0.90, fuerza_halo=0.85, suavizar_bordes=True):
+    """Motor de matting con trimap estricto y descontaminación local.
+    1. Núcleo de BiRefNet (alpha_raw alto) y fondo puro son intocables: nunca se muerde una mejilla.
+    2. Guided Filter solo en la banda de transición.
+    3. El color del borde se toma únicamente del vecino interior inmediato (sin F_pelo global)."""
+    import gc
+    f32 = np.float32
+    H, W = alpha_raw.shape[:2]
+    lado = max(H, W)
+    np_img = np_img.astype(f32, copy=False)
+    alpha_raw = np.clip(alpha_raw, 0.0, 1.0).astype(f32)
+
+    # ---------- 1. Trimap y referencias locales ----------
+    r_local = max(2, int(round(lado * 0.0025)))
+    fg_nucleo = _erosion_dt(alpha_raw > 0.92, r_local)
+    if fg_nucleo.sum() < 200:
+        fg_nucleo = (alpha_raw > 0.90).astype(f32)
+    bg_nucleo = _erosion_dt(alpha_raw < 0.03, r_local * 2)
+    if bg_nucleo.sum() < 200:
+        bg_nucleo = (alpha_raw < 0.03).astype(f32)
+
+    F_ref = _propagar_color_interno(np_img, fg_nucleo, niveles=4)
+    B_ref = _propagar_color_interno(np_img, bg_nucleo, niveles=5)
+    if F_ref is None or B_ref is None:
+        return cv2.GaussianBlur(alpha_raw, (0, 0), 0.8), np_img
+
+    # ---------- 2. Alpha con blindaje del núcleo ----------
+    print("📐 [RECORTE] Refinando bordes y hebras con protección estricta de silueta...")
+    sig_pre = max(0.8, lado * 0.0008)
+    alpha_suave = cv2.GaussianBlur(alpha_raw, (0, 0), sig_pre)
+
+    dFB = F_ref - B_ref
+    den = np.sum(dFB * dFB, axis=2) + 1e-4
+    proj = np.clip(np.sum((np_img - B_ref) * dFB, axis=2) / den, 0.0, 1.0).astype(f32)
+    conf_color = np.clip((np.sqrt(den) - 0.06) / 0.18, 0.0, 1.0).astype(f32)
+    gris = cv2.cvtColor(np_img, cv2.COLOR_RGB2GRAY)
+    guia = (conf_color * proj + (1.0 - conf_color) * gris).astype(f32)
+
+    r_gf = max(4, int(lado * 0.004)) | 1
+    alpha_gf = np.clip(_guided_filter(guia, alpha_suave, r_gf, eps=2e-4), 0.0, 1.0)
+
+    piso_seguro = np.clip((alpha_raw - 0.50) / 0.38, 0.0, 1.0) * alpha_raw
+    techo_seguro = cv2.dilate(alpha_raw, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))) + 0.10
+    alpha = np.clip(np.maximum(alpha_gf, piso_seguro), 0.0, np.minimum(1.0, techo_seguro))
+    alpha = np.clip((alpha - 0.025) / 0.945, 0.0, 1.0).astype(f32)
+    del alpha_suave, alpha_gf, guia, proj, gris, piso_seguro, techo_seguro
+    gc.collect()
+
+    # ---------- 3. Descontaminación del borde ----------
+    print("🧽 [RECORTE] Descontaminando borde con color vecino estricto...")
+    dist_borde = cv2.distanceTransform((alpha > 0.5).astype(np.uint8), cv2.DIST_L2, 3)
+    ancho_corona = max(6.0, lado * 0.010)
+    peso_orilla = np.exp(-dist_borde / ancho_corona) * (alpha > 0.005)
+
+    a_safe = np.maximum(alpha[:, :, None], 0.35)
+    F_unmix = (np_img - (1.0 - a_safe) * B_ref) / a_safe
+    F_unmix = np.clip(F_unmix, np.minimum(np_img, F_ref) - 0.05, np.maximum(np_img, F_ref) + 0.05)
+
+    w_vecino = np.clip((0.75 - alpha) / 0.60, 0.0, 1.0)[:, :, None]
+    F_borde = F_unmix * (1.0 - w_vecino) + F_ref * w_vecino
+
+    if fuerza_spill > 0:
+        lab_f = cv2.cvtColor(np.clip(F_borde, 0, 1).astype(f32), cv2.COLOR_RGB2LAB)
+        lab_r = cv2.cvtColor(np.clip(F_ref, 0, 1).astype(f32), cv2.COLOR_RGB2LAB)
+        lab_b = cv2.cvtColor(np.clip(B_ref, 0, 1).astype(f32), cv2.COLOR_RGB2LAB)
+        v = lab_b[:, :, 1:] - lab_r[:, :, 1:]
+        mag = np.linalg.norm(v, axis=2)
+        v_hat = v / np.maximum(mag, 1e-3)[:, :, None]
+        cromatico = np.clip((mag - 6.0) / 10.0, 0.0, 1.0)
+        exceso_croma = np.clip(np.sum((lab_f[:, :, 1:] - lab_r[:, :, 1:]) * v_hat, axis=2), 0.0, 30.0)
+        quitar = exceso_croma * peso_orilla * cromatico * float(fuerza_spill)
+        lab_f[:, :, 1:] -= v_hat * quitar[:, :, None]
+        F_borde = np.clip(cv2.cvtColor(lab_f, cv2.COLOR_LAB2RGB), 0.0, 1.0).astype(f32)
+        del lab_f, lab_r, lab_b, v, mag, v_hat, cromatico, exceso_croma, quitar
+
+    if fuerza_halo > 0:
+        t_bg = np.clip(np.sum((F_borde - F_ref) * dFB, axis=2) / den, -1.0, 1.0)
+        contaminacion_luz = np.clip(-t_bg, 0.0, 1.0) * peso_orilla * conf_color * float(fuerza_halo)
+        F_borde = F_borde * (1.0 - contaminacion_luz[:, :, None]) + F_ref * contaminacion_luz[:, :, None]
+
+    m_orilla = np.clip(peso_orilla * 1.15, 0.0, 1.0)[:, :, None]
+    F_final = np.clip(np_img * (1.0 - m_orilla) + F_borde * m_orilla, 0.0, 1.0).astype(f32)
+
+    del F_ref, B_ref, fg_nucleo, bg_nucleo, conf_color, dFB, den, dist_borde, peso_orilla, F_unmix, F_borde
+    gc.collect()
+    return alpha.astype(f32), F_final
+
+def _recorte_core(np_img):
+    """Núcleo de recorte: foto float32 [0,1] (H,W,3) -> (alpha [H,W], color_limpio [H,W,3])."""
+    alpha_raw = _alpha_birefnet(np_img)
+    return _refinar_alpha_y_color(np_img, alpha_raw)
+
+def _componer_sujeto_sobre_fondo(color, alpha, fondo, intensidad_wrap=0.22):
+    """Compone sujeto sobre fondo nuevo con Light Wrap físico: la luz del fondo nuevo envuelve
+    el borde interior del sujeto. color/fondo: [H,W,3] float [0,1]; alpha: [H,W] o [H,W,1]."""
+    f32 = np.float32
+    H, W = color.shape[:2]
+    alpha = np.clip(alpha.reshape(H, W), 0.0, 1.0).astype(f32)
+    color = color.astype(f32, copy=False)
+    fondo = fondo[:, :, :3].astype(f32, copy=False)
+    if intensidad_wrap > 0:
+        sig = max(1.5, max(H, W) * 0.003)
+        fondo_difuso = cv2.GaussianBlur(fondo, (0, 0), sig * 1.5)
+        penetracion = cv2.GaussianBlur(1.0 - alpha, (0, 0), sig)              # cuánto fondo hay cerca de cada píxel
+        w = np.clip(2.0 * float(intensidad_wrap) * penetracion * alpha, 0.0, 0.6)[:, :, None]
+        color = color * (1.0 - w) + fondo_difuso * w
+    a3 = alpha[:, :, None]
+    return color * a3 + fondo * (1.0 - a3)
+
+def ejecutar_fase_2_recorte(ruta_input):
+    """Versión por rutas (usada por los comandos que aún no migraron al motor de capas)."""
+    import gc
+    if not ruta_input: return None
+    with Image.open(ruta_input) as im:
+        np_img = np.array(im.convert('RGB')).astype(np.float32) / 255.0
+    alpha, color_limpio = _recorte_core(np_img)
+    rgba = np.dstack([np.clip(color_limpio * 255.0, 0, 255), np.clip(alpha * 255.0, 0, 255)]).astype(np.uint8)
+    del np_img, alpha, color_limpio
+    gc.collect()
+    ruta_salida = '/kaggle/working/sujeto_sin_fondo.png'
+    Image.fromarray(rgba, mode="RGBA").save(ruta_salida)
+    return ruta_salida
+
+def ejecutar_fase_2_recorte_ctx(contexto):
+    """Versión motor de capas: lee la base de la RAM y devuelve SOLO las capas
+    nuevas (alpha + color del sujeto). Pensada para correr dentro de ejecutar_aislado."""
+    alpha, color_limpio = _recorte_core(contexto["base_rgb_32f"])
+    return {"alpha_sujeto_32f": alpha[:, :, None], "color_sujeto_32f": color_limpio}
+
+def _expansion_matematica_pura(img_bgr, pad_top, pad_bottom, pad_left, pad_right):
+    """
+    Expansión geométrica determinista (sin IA generativa):
+    1. FONDO: se replica el color de la pared (sin arrastrar ropa) y se difumina fuerte -> sin puntos ni manchas.
+    2. SUJETO (hombros/brazos): extrapolación diagonal siguiendo la pendiente real del hombro, con textura
+       en espejo para conservar la trama de la tela (sin líneas horizontales estiradas).
+    """
+    h, w = img_bgr.shape[:2]
+    if not any(v > 0 for v in (pad_top, pad_bottom, pad_left, pad_right)):
+        return img_bgr
+
+    # 1. Silueta rápida del sujeto con net_bria (512x512, PyTorch): no usa ONNX en el proceso principal
+    orig_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+    im_resized = Image.fromarray(orig_rgb).resize([512, 512], Image.BILINEAR)
+    im_tensor = torch.from_numpy(np.array(im_resized)).permute(2, 0, 1).float().divide(255)
+    im_tensor = normalize(im_tensor, [0.5, 0.5, 0.5], [1.0, 1.0, 1.0]).unsqueeze(0).to(device)
+    with torch.no_grad():
+        res_bria = net_bria(im_tensor)
+    tensor_bria = res_bria
+    while not isinstance(tensor_bria, torch.Tensor):
+        tensor_bria = tensor_bria[0]
+    mascara_t = F.interpolate(tensor_bria, size=(h, w), mode='bilinear', align_corners=False).squeeze()
+    ma, mi = torch.max(mascara_t), torch.min(mascara_t)
+    mask_sujeto = ((mascara_t - mi) / (ma - mi + 1e-6)).cpu().numpy().astype(np.float32)
+    mask_sujeto = cv2.GaussianBlur(mask_sujeto, (7, 7), 0)
+    del im_tensor, res_bria, tensor_bria, mascara_t, im_resized
+
+    # 2. Fondo limpio: donde la persona toca los bordes laterales se usa el color de la pared
+    borde_fondo = img_bgr.copy()
+    color_pared_izq = np.median(img_bgr[:max(10, int(h * 0.15)), :max(5, int(w * 0.05))], axis=(0, 1))
+    color_pared_der = np.median(img_bgr[:max(10, int(h * 0.15)), -max(5, int(w * 0.05)):], axis=(0, 1))
+    m_3c = mask_sujeto[:, :, None]
+    fw = max(1, int(w * 0.15))
+    borde_fondo[:, :fw] = (borde_fondo[:, :fw] * (1 - m_3c[:, :fw]) + color_pared_izq * m_3c[:, :fw]).astype(np.uint8)
+    borde_fondo[:, -fw:] = (borde_fondo[:, -fw:] * (1 - m_3c[:, -fw:]) + color_pared_der * m_3c[:, -fw:]).astype(np.uint8)
+
+    canvas = cv2.copyMakeBorder(borde_fondo, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_REPLICATE)
+    k_blur = max(31, int(max(h, w) * 0.04) | 1)
+    canvas_final = cv2.GaussianBlur(canvas, (k_blur, k_blur), 0)
+    canvas_final[pad_top:pad_top + h, pad_left:pad_left + w] = img_bgr   # foto original intacta
+
+    # 3. Extrapolación diagonal de hombros (izquierdo / derecho)
+    def extrapolar_hombro(es_izquierdo, pad_x):
+        if pad_x <= 0:
+            return
+        x_borde = 0 if es_izquierdo else w - 1
+        delta_x = max(1, min(int(w * 0.08), 60))
+        x_interno = min(w - 1, delta_x) if es_izquierdo else max(0, w - 1 - delta_x)
+
+        col_borde = np.where(mask_sujeto[:, x_borde] > 0.3)[0]
+        col_interna = np.where(mask_sujeto[:, x_interno] > 0.3)[0]
+        if len(col_borde) < 10 or len(col_interna) < 10:
+            return  # el sujeto no toca este borde lateral
+
+        y_top_borde = float(col_borde.min())
+        y_top_interno = float(col_interna.min())
+        pendiente = (y_top_borde - y_top_interno) / float(max(1, abs(x_borde - x_interno)))
+        pendiente = float(np.clip(pendiente, 0.18, 0.85))
+
+        ys_dest = np.arange(h, dtype=np.float32)[:, None]
+        dxs = np.arange(1, pad_x + 1, dtype=np.float32)[None, :]
+        ys_src = np.clip(ys_dest - dxs * pendiente, 0, h - 1)
+
+        periodo = min(w - 1, max(20, int(w * 0.25)))
+        offset_x = periodo - np.abs((dxs % (2 * periodo)) - periodo)
+        xs_src = offset_x if es_izquierdo else (w - 1) - offset_x
+        xs_src = np.ascontiguousarray(np.broadcast_to(xs_src, ys_src.shape), dtype=np.float32)
+        ys_src = np.ascontiguousarray(ys_src, dtype=np.float32)
+
+        parche_ropa = cv2.remap(img_bgr, xs_src, ys_src, interpolation=cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REFLECT_101)
+        parche_mask = cv2.remap(mask_sujeto, xs_src, ys_src, interpolation=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+        parche_mask = cv2.GaussianBlur(parche_mask, (9, 9), 0)[:, :, None]
+
+        if es_izquierdo:
+            parche_ropa = parche_ropa[:, ::-1, :]   # dx=1 es el más pegado a la costura
+            parche_mask = parche_mask[:, ::-1, :]
+            sl = (slice(pad_top, pad_top + h), slice(0, pad_left))
+        else:
+            sl = (slice(pad_top, pad_top + h), slice(pad_left + w, pad_left + w + pad_right))
+        zona = canvas_final[sl]
+        canvas_final[sl] = np.clip(parche_ropa * parche_mask + zona * (1.0 - parche_mask) + 0.5, 0, 255).astype(np.uint8)
+
+    extrapolar_hombro(True, pad_left)
+    extrapolar_hombro(False, pad_right)
+
+    # 4. Expansión hacia abajo (torso): espejo vertical corto
+    if pad_bottom > 0:
+        alto_espejo = min(h, pad_bottom)
+        franja_inf = img_bgr[h - alto_espejo:h, :][::-1, :, :]
+        mask_inf = mask_sujeto[h - alto_espejo:h, :][::-1]
+        if alto_espejo < pad_bottom:
+            franja_inf = cv2.resize(franja_inf, (w, pad_bottom), interpolation=cv2.INTER_LANCZOS4)
+            mask_inf = cv2.resize(mask_inf, (w, pad_bottom), interpolation=cv2.INTER_LINEAR)
+        mask_inf = np.ascontiguousarray(mask_inf)[:, :, None]
+        sl = (slice(pad_top + h, pad_top + h + pad_bottom), slice(pad_left, pad_left + w))
+        zona = canvas_final[sl]
+        canvas_final[sl] = np.clip(franja_inf * mask_inf + zona * (1.0 - mask_inf) + 0.5, 0, 255).astype(np.uint8)
+
+    return canvas_final
+
+def ejecutar_recorte_manual_expandible(ruta_input, x, y, ancho_cuadro, alto_cuadro, usar_ia_relleno=False):
+    if not ruta_input: return None
+    print(f"✂️ [RECORTE MANUAL] Expansión matemática activa - x:{x}, y:{y}, w:{ancho_cuadro}, h:{alto_cuadro}")
+    img_bgr = cv2.imread(ruta_input)
+    if img_bgr is None: return None
+    alto_img, ancho_img, _ = img_bgr.shape
+    x1, y1 = int(x), int(y)
+    x2, y2 = int(x + ancho_cuadro), int(y + alto_cuadro)
+
+    pad_top = max(0, -y1)
+    pad_bottom = max(0, y2 - alto_img)
+    pad_left = max(0, -x1)
+    pad_right = max(0, x2 - ancho_img)
+    hay_pad = any(v > 0 for v in (pad_top, pad_bottom, pad_left, pad_right))
+
+    if hay_pad and usar_ia_relleno:
+        img_padded = _expansion_matematica_pura(img_bgr, pad_top, pad_bottom, pad_left, pad_right)
+    elif hay_pad:
+        # Con fondo elegido el área nueva se descarta: relleno plano neutro
+        img_padded = cv2.copyMakeBorder(img_bgr, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=(0, 0, 0))
+    else:
+        img_padded = img_bgr
+
+    new_y1, new_y2 = y1 + pad_top, y2 + pad_top
+    new_x1, new_x2 = x1 + pad_left, x2 + pad_left
+    img_recortada = img_padded[new_y1:new_y2, new_x1:new_x2]
+
+    ruta_salida = '/kaggle/working/recorte_manual_expandido.png'
+    cv2.imwrite(ruta_salida, img_recortada)
+    return ruta_salida
+
+def ejecutar_fase_3_fondo(ruta_input, fondo_id='0', ruta_fondo_custom=None):
+    if not ruta_input: return ruta_input
+    if str(fondo_id) == '0':
+        print("🖼️ [FONDO] fondo_id = 0 (transparente), no se aplica ningún fondo.")
+        return ruta_input
+
+    # Kaggle a veces monta los datasets directo en /kaggle/input/<slug>/ y a
+    # veces los anida (p.ej. /kaggle/input/datasets/<usuario>/<slug>/...).
+    # En vez de adivinar la estructura, buscamos el archivo en CUALQUIER
+    # profundidad dentro de /kaggle/input/, filtrando por rutas que
+    # contengan "fondos" para no chocar con otros datasets (mallas, etc).
+    ruta_fondo = ruta_fondo_custom if (ruta_fondo_custom and os.path.exists(ruta_fondo_custom)) else None
+    for ext in ([] if ruta_fondo else ['jpg', 'jpeg', 'png', 'JPG', 'JPEG', 'PNG']):
+        encontrados = glob.glob(f'/kaggle/input/**/{fondo_id}.{ext}', recursive=True)
+        encontrados_fondos = [p for p in encontrados if 'fondo' in p.lower()]
+        if encontrados_fondos:
+            ruta_fondo = encontrados_fondos[0]
+            break
+        elif encontrados:
+            # Por si el dataset no tiene "fondo" en la ruta pero es el único candidato
+            ruta_fondo = encontrados[0]
+            break
+
+    if ruta_fondo is None:
+        print(f"⚠️ [FONDO] No se encontró ningún archivo '{fondo_id}.(jpg|jpeg|png)' en ninguna subcarpeta de /kaggle/input/.")
+        try:
+            print(f"🔎 [FONDO] Árbol completo bajo /kaggle/input/: {glob.glob('/kaggle/input/**/*', recursive=True)}")
+        except Exception as e:
+            print(f"🔎 [FONDO] No se pudo listar /kaggle/input/: {e}")
+        print("⚠️ [FONDO] Se continúa SIN aplicar fondo (imagen resultante quedará igual que antes de esta fase).")
+        return ruta_input
+
+    print(f"✅ [FONDO] Encontrado en: {ruta_fondo}. Componiendo sobre el sujeto (con decontaminación de color)...")
+    sujeto_pil = Image.open(ruta_input).convert("RGBA")
+    fondo_pil = Image.open(ruta_fondo).convert("RGBA").resize(sujeto_pil.size)
+
+    sujeto_np = np.array(sujeto_pil).astype(np.float64) / 255.0
+    fondo_np = np.array(fondo_pil).astype(np.float64) / 255.0
+    alpha = sujeto_np[:, :, 3]
+
+    # El alpha y el color ya vienen limpios (propagación interna de color) desde _recorte_core;
+    # NO se recalcula estimate_foreground_ml a baja resolución ni se vuelve a difuminar.
+    alpha_3c = alpha[:, :, None]
+    color_limpio = sujeto_np[:, :, :3]
+    compuesta_np = _componer_sujeto_sobre_fondo(color_limpio, alpha, fondo_np[:, :, :3])   # incluye Light Wrap
+    compuesta_np = np.clip(compuesta_np * 255.0 + 0.5, 0, 255).astype(np.uint8)
+
+    ruta_salida = '/kaggle/working/resultado_con_fondo.png'
+    Image.fromarray(compuesta_np, mode="RGB").save(ruta_salida)
+    print(f"✅ [FONDO] Guardado en {ruta_salida}")
+    return ruta_salida
+
+def aplicar_correccion_impresion(ruta_imagen, fuerza=0.35):
+    """
+    Corrige automáticamente el tono naranja que suele aparecer en la PIEL al
+    imprimir (las impresoras CMYK tienden a "quemar" los tonos cálidos hacia
+    el naranja, aunque en pantalla se vean normales). Detecta la piel por
+    color (YCrCb) y le resta un poco de calidez (b* de LAB) y de rojo (a*),
+    solo donde ya hay exceso de naranja — el resto de la imagen no se toca.
+    fuerza: 0 = no hace nada, 1 = corrección máxima. Se llama automáticamente
+    al final de CADA proceso (ver ejecutar_fase_5_enmarcado).
+    """
+    img = Image.open(ruta_imagen)
+    tiene_alpha = (img.mode == "RGBA")
+    rgb = img.convert("RGB")
+    np_rgb = np.array(rgb)
+
+    # 1) Máscara de piel (rango YCrCb clásico, tolerante a distintos tonos)
+    ycrcb = cv2.cvtColor(np_rgb, cv2.COLOR_RGB2YCrCb)
+    mascara_piel = cv2.inRange(ycrcb, (0, 135, 85), (255, 180, 135)).astype(np.float32) / 255.0
+    mascara_piel = cv2.GaussianBlur(mascara_piel, (15, 15), 0)  # sin bordes duros
+
+    # 2) En LAB: b* alto = tira a amarillo/naranja, a* alto = tira a rojo.
+    lab = cv2.cvtColor(np_rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+    L, A, B = lab[:, :, 0], lab[:, :, 1], lab[:, :, 2]
+
+    neutro_b = 128.0  # punto neutro de b* en la codificación uint8 de OpenCV
+    exceso_naranja = np.clip(B - neutro_b, 0, None)  # solo si YA tira a naranja
+
+    correccion = exceso_naranja * fuerza * mascara_piel
+    B2 = np.clip(B - correccion, 0, 255)
+    A2 = np.clip(A - correccion * 0.25, 0, 255)  # un poco menos de rojo también
+
+    lab_corregido = np.stack([L, A2, B2], axis=-1).astype(np.uint8)
+    rgb_corregido = cv2.cvtColor(lab_corregido, cv2.COLOR_LAB2RGB)
+
+    if tiene_alpha:
+        alpha_ch = np.array(img.convert("RGBA"))[:, :, 3]
+        Image.fromarray(np.dstack([rgb_corregido, alpha_ch]), mode="RGBA").save(ruta_imagen)
+    else:
+        if str(ruta_imagen).lower().endswith((".jpg", ".jpeg")):
+            Image.fromarray(rgb_corregido, mode="RGB").save(ruta_imagen, quality=100, subsampling=0)
+        else:
+            Image.fromarray(rgb_corregido, mode="RGB").save(ruta_imagen)
+    return ruta_imagen
+
+def ejecutar_fase_5_enmarcado(ruta_input, dimension_elegida, malla_elegida, fuerza_naranja=0.35):
+    if not ruta_input: return None, None
+    if fuerza_naranja > 0:
+        aplicar_correccion_impresion(ruta_input, fuerza=fuerza_naranja)  # anti-naranja (0 = ya aplicado por el motor de capas)
+    ruta_sin_malla = ruta_input
+    ruta_con_malla = None
+    if str(malla_elegida) != '0':
+        ruta_malla_archivo = None
+        for ext in ['png', 'PNG', 'jpg', 'jpeg']:
+            encontrados = glob.glob(f'/kaggle/input/**/{malla_elegida}.{ext}', recursive=True)
+            encontrados_malla = [p for p in encontrados if 'malla' in p.lower()]
+            if encontrados_malla:
+                ruta_malla_archivo = encontrados_malla[0]
+                break
+        if ruta_malla_archivo is None:
+            print(f"⚠️ [MALLA] No se encontró la malla '{malla_elegida}' en ninguna subcarpeta de /kaggle/input/. Se continúa sin malla.")
+        if ruta_malla_archivo:
+            print(f"✅ [MALLA] Encontrada en: {ruta_malla_archivo}")
+            img_base = Image.open(ruta_input).convert("RGBA")
+            malla = Image.open(ruta_malla_archivo).convert("RGBA").resize(img_base.size)
+            img_malla = Image.alpha_composite(img_base, malla)
+            ruta_con_malla = '/kaggle/working/resultado_con_malla.png'
+            img_malla.convert("RGB").save(ruta_con_malla)
+    return ruta_sin_malla, ruta_con_malla
+
+def ejecutar_fase_6_armonizacion(ruta_input, ruta_mascara, nivel_fidelidad):
+    if not ruta_input: return None
+    print(f"🎨 [FASE 6] Genio del Color regulado (Fuerza: {nivel_fidelidad})...")
+    try:
+        # Leemos la foto de entrada (la pálida de CodeFormer)
+        img_original = cv2.imread(ruta_input)
+        
+        # Le pedimos a DDColor que haga su magia (al 100%)
+        resultado = colorizador_ddcolor(ruta_input)
+        img_ddcolor = resultado['output_img']
+        
+        # Nos aseguramos de que calcen milimétricamente
+        img_ddcolor = cv2.resize(img_ddcolor, (img_original.shape[1], img_original.shape[0]))
+        
+        # 🔥 EL TRUCO: Mezclamos ambas fotos según el Slider de tu web.
+        # Si envías 0.5, OpenCV suma 50% de la pálida y 50% de la coloreada.
+        fuerza_ia = float(nivel_fidelidad)
+        fuerza_original = 1.0 - fuerza_ia
+        
+        img_fusionada = cv2.addWeighted(img_ddcolor, fuerza_ia, img_original, fuerza_original, 0)
+        
+        ruta_salida = '/kaggle/working/resultado_color_ddcolor.png'
+        cv2.imwrite(ruta_salida, img_fusionada)
+        print(f"✅ [COLOR] Colorización ajustada guardada en {ruta_salida}")
+        return ruta_salida
+        
+    except Exception as e:
+        print(f"⚠️ [COLOR] Falló DDColor, se devuelve original. Error: {e}")
+        return ruta_input
+
+def ejecutar_restaurar_rostro(ruta_target, ruta_rostro_referencia):
+    """Recorta el rostro de 'ruta_rostro_referencia' y lo funde, alineado y
+    con blending de gradientes (estilo Photoshop / Healing Brush), en el
+    hueco del rostro detectado en 'ruta_target'. Usa facexlib (ya viene
+    instalado para CodeFormer), así que no requiere ninguna librería nueva."""
+    if not ruta_target: return ruta_target
+    if not ruta_rostro_referencia:
+        print("⚠️ [ROSTRO] No se recibió foto de referencia. Se omite este paso.")
+        return ruta_target
+
+    print("🧑 [ROSTRO] Cargando detector de rostros (facexlib)...")
+    from facexlib.utils.face_restoration_helper import FaceRestoreHelper
+    face_helper = FaceRestoreHelper(
+        upscale_factor=1, face_size=512, crop_ratio=(1, 1),
+        det_model='retinaface_resnet50', save_ext='png',
+        use_parse=True, device=device
+    )
+
+    # 1) Recortar y alinear el rostro de la foto de REFERENCIA
+    img_ref = cv2.imread(ruta_rostro_referencia)
+    if img_ref is None:
+        print("⚠️ [ROSTRO] No se pudo leer la foto de referencia. Se omite.")
+        return ruta_target
+    face_helper.clean_all()
+    face_helper.read_image(img_ref)
+    num_ref = face_helper.get_face_landmarks_5(only_center_face=True, resize=640)
+    if num_ref == 0:
+        print("⚠️ [ROSTRO] No se detectó ningún rostro en la foto de referencia. Se omite.")
+        return ruta_target
+    face_helper.align_warp_face()
+    rostro_referencia_alineado = face_helper.cropped_faces[0]
+
+    # 2) Detectar el rostro de la imagen del PANEL (el que vamos a reemplazar)
+    img_target = cv2.imread(ruta_target)
+    if img_target is None:
+        print("⚠️ [ROSTRO] No se pudo leer la imagen del panel. Se omite.")
+        return ruta_target
+    face_helper.clean_all()
+    face_helper.read_image(img_target)
+    num_target = face_helper.get_face_landmarks_5(only_center_face=True, resize=640)
+    if num_target == 0:
+        print("⚠️ [ROSTRO] No se detectó ningún rostro en la imagen del panel. Se omite.")
+        return ruta_target
+    face_helper.align_warp_face()
+
+    # 3) Calcular la transformación inversa para llevar el rostro de
+    #    referencia (ya alineado a 512x512) a la posición, ángulo y escala
+    #    exactos del rostro detectado en la imagen del panel.
+    face_helper.get_inverse_affine(None)
+    inv_affine = face_helper.inverse_affine_matrices[0]
+    alto_img, ancho_img = img_target.shape[:2]
+
+    rostro_warpeado = cv2.warpAffine(
+        rostro_referencia_alineado, inv_affine, (ancho_img, alto_img),
+        flags=cv2.INTER_LANCZOS4
+    )
+
+    # 4) Máscara OVALADA (con forma de rostro, no un cuadro) generada en el
+    #    espacio 512x512 y luego warpeada igual que el rostro, para que
+    #    coincida en posición y ángulo. El difuminado del borde es lo que
+    #    da la transición suave (el "feather" de Photoshop).
+    mascara_512 = np.zeros((512, 512), dtype=np.uint8)
+    centro_mascara = (256, 260)
+    ejes_mascara = (150, 190)  # ancho, alto de la elipse -> sigue el óvalo de la cara
+    cv2.ellipse(mascara_512, centro_mascara, ejes_mascara, 0, 0, 360, 255, -1)
+    mascara_512 = cv2.GaussianBlur(mascara_512, (31, 31), 0)
+
+    mascara_warpeada = cv2.warpAffine(
+        mascara_512, inv_affine, (ancho_img, alto_img),
+        flags=cv2.INTER_LINEAR
+    )
+    _, mascara_binaria = cv2.threshold(mascara_warpeada, 20, 255, cv2.THRESH_BINARY)
+
+    if not mascara_binaria.any():
+        print("⚠️ [ROSTRO] La máscara de fusión quedó vacía. Se usa el pegado simple de respaldo.")
+        face_helper.add_restored_face(rostro_referencia_alineado)
+        img_resultado = face_helper.paste_faces_to_input_image()
+        ruta_salida = '/kaggle/working/rostro_restaurado.png'
+        cv2.imwrite(ruta_salida, img_resultado)
+        return ruta_salida
+
+    ys, xs = np.where(mascara_binaria > 0)
+    centro_clone = (int(xs.mean()), int(ys.mean()))
+
+    # 5) Fusión tipo Photoshop (clonado de gradientes / Poisson blending):
+    #    iguala automáticamente el tono de piel, la luz y las sombras entre
+    #    la cara pegada y el resto de la foto, eliminando el "cuadro" o
+    #    borde visible que se veía antes.
+    try:
+        resultado = cv2.seamlessClone(
+            rostro_warpeado, img_target, mascara_binaria, centro_clone, cv2.NORMAL_CLONE
+        )
+    except cv2.error as e:
+        print(f"⚠️ [ROSTRO] Falló el blending avanzado ({e}), se usa fusión simple de respaldo.")
+        mascara_f = (cv2.GaussianBlur(mascara_binaria, (21, 21), 0).astype(np.float32) / 255.0)[..., None]
+        resultado = (rostro_warpeado.astype(np.float32) * mascara_f + img_target.astype(np.float32) * (1 - mascara_f)).astype(np.uint8)
+
+    ruta_salida = '/kaggle/working/rostro_restaurado.png'
+    cv2.imwrite(ruta_salida, resultado)
+    print(f"✅ [ROSTRO] Rostro original restaurado y fusionado profesionalmente. Guardado en {ruta_salida}")
+    return ruta_salida
+
+def ejecutar_quitar_logo(ruta_input, ruta_mascara):
+    """Borra la zona pintada por el usuario (logo de la IA) usando LaMa,
+    un modelo de inpainting profundo (mucho más preciso que el inpainting
+    clásico de OpenCV). Si no hay máscara (el usuario no pintó nada), se
+    deja la imagen igual.
+
+    Usa la implementación oficial de LaMa vía ModelScope (la misma
+    librería que ya usamos para DDColor) en vez de simple-lama-inpainting
+    o de la versión ONNX: ambas resultaron tener bugs permanentes en este
+    entorno de Kaggle —simple-lama-inpainting guarda su checkpoint
+    (big-lama.pt) con instrucciones CUDA grabadas, así que en un servidor
+    100% CPU siempre fallaba con 'aten::empty_strided' (buscando una GPU
+    que no existe); la versión ONNX fallaba con
+    '[ShapeInferenceError] one-sided DFT requires real input' en la capa
+    de Fourier— y en ambos casos SIEMPRE se terminaba usando el respaldo
+    de inpainting clásico (cv2.inpaint), arruinando la calidad. ModelScope
+    trae su propio pipeline de inferencia que se adapta a CPU sin choques.
+
+    MODO PARCHE LOCAL: en vez de mandarle toda la foto a LaMa, se recorta
+    un cuadrado exacto de 512x512 (o 1024x1024 si el logo es grande)
+    centrado en la zona pintada, se repara solo ese parche, y se vuelve a
+    soldar en la foto original. Esto es ~10x más rápido porque LaMa ya no
+    procesa zonas de la foto sin logo, y evita saturar la RAM.
+
+    Por qué esto no distorsiona dedos/manos/texturas cercanas:
+    1) La máscara casi no se dilata (1-2px, solo para tapar el borde exacto
+       del logo), en vez de "inflarla" varios píxeles como antes.
+    2) LaMa entiende estructura y patrones (no solo promedia píxeles
+       vecinos como Telea), así que reconstruye piel/dedos de forma
+       coherente si algún borde del logo los toca.
+    3) Al final se compone el resultado con la imagen original usando la
+       máscara (con un difuminado de solo 2-3px en el borde para que no se
+       note la costura): así se garantiza que TODO lo que está fuera de lo
+       pintado por el usuario queda exactamente igual, píxel por píxel.
+    """
+    import gc
+    if not ruta_input: return ruta_input
+    if not ruta_mascara or not os.path.exists(ruta_mascara):
+        print("ℹ️ [LOGO] No se pintó ninguna zona de logo a borrar. Se omite este paso.")
+        return ruta_input
+
+    img_bgr = cv2.imread(ruta_input)
+    mask = cv2.imread(ruta_mascara, cv2.IMREAD_GRAYSCALE)
+    if img_bgr is None or mask is None:
+        print("⚠️ [LOGO] No se pudo leer la imagen o la máscara. Se omite.")
+        return ruta_input
+
+    h_orig, w_orig = img_bgr.shape[:2]
+    mask = cv2.resize(mask, (w_orig, h_orig))
+    _, mask_bin = cv2.threshold(mask, 10, 255, cv2.THRESH_BINARY)
+    # Dilatación MÍNIMA (3x3): solo cubre el borde exacto del logo, sin
+    # invadir dedos/piel/ropa cercanos que el usuario no pintó.
+    mask_bin = cv2.dilate(mask_bin, np.ones((3, 3), np.uint8), iterations=1)
+
+    resultado_bgr = None
+    try:
+        print("🧽 [LOGO] Borrando logo con LaMa (ModelScope PyTorch nativo - Modo Parche Local)...")
+        from modelscope.pipelines import pipeline
+        from modelscope.utils.constant import Tasks
+        from modelscope.outputs import OutputKeys
+
+        # Implementación oficial de LaMa vía ModelScope (inmune a los bugs
+        # de ONNX y de simple-lama-inpainting/CUDA). La primera vez que se
+        # llama, descarga los pesos y los deja en caché.
+        inpainter = pipeline(Tasks.image_inpainting, model='damo/cv_fft_inpainting_lama')
+
+        ys, xs = np.where(mask_bin > 0)
+        if len(ys) > 0:
+            y1, y2 = np.min(ys), np.max(ys)
+            x1, x2 = np.min(xs), np.max(xs)
+
+            # Centro geométrico del logo pintado
+            cy, cx = (y1 + y2) // 2, (x1 + x2) // 2
+            mask_h, mask_w = y2 - y1, x2 - x1
+
+            # Recorte en potencias de 2 exactas (más rápido y estable)
+            max_dim = max(mask_h, mask_w)
+            CROP_SIZE = 1024 if max_dim > 800 else 512
+            half = CROP_SIZE // 2
+
+            # Bordes temporales tipo espejo por si el logo está pegado al
+            # borde de la foto (para no salirnos del cuadrado)
+            pad_top = max(0, half - cy)
+            pad_bottom = max(0, cy + half - h_orig)
+            pad_left = max(0, half - cx)
+            pad_right = max(0, cx + half - w_orig)
+
+            img_padded = cv2.copyMakeBorder(img_bgr, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_REFLECT)
+            mask_padded = cv2.copyMakeBorder(mask_bin, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_REFLECT)
+
+            ncy = cy + pad_top
+            ncx = cx + pad_left
+
+            # Cuadrado matemático perfecto alrededor del logo
+            crop_img = img_padded[ncy - half : ncy + half, ncx - half : ncx + half]
+            crop_mask = mask_padded[ncy - half : ncy + half, ncx - half : ncx + half]
+
+            # ModelScope lee los parches directamente del disco de forma segura
+            cv2.imwrite('/kaggle/working/temp_crop.png', crop_img)
+            cv2.imwrite('/kaggle/working/temp_mask.png', crop_mask)
+
+            # 🪄 Inferencia LaMa pura (ModelScope)
+            resultado_pipeline = inpainter({'img': '/kaggle/working/temp_crop.png', 'mask': '/kaggle/working/temp_mask.png'})
+            res_bgr_crop = resultado_pipeline[OutputKeys.OUTPUT_IMG]
+
+            # Pegar el parche curado sobre la imagen "blindada" (con bordes)
+            res_full_padded = img_padded.copy()
+            res_full_padded[ncy - half : ncy + half, ncx - half : ncx + half] = res_bgr_crop
+
+            # Quitar el andamiaje (bordes temporales) para recuperar la foto nativa
+            resultado_bgr = res_full_padded[pad_top : pad_top + h_orig, pad_left : pad_left + w_orig]
+            print("✅ [LOGO] LaMa (ModelScope) reconstruyó la textura exitosamente sin errores.")
+
+            # Liberamos la RAM destruyendo el modelo inmediatamente
+            del inpainter
+            gc.collect()
+        else:
+            resultado_bgr = img_bgr
+    except Exception as e:
+        print(f"⚠️ [LOGO] LaMa ModelScope falló ({e}), se usa inpainting clásico como respaldo.")
+
+    if resultado_bgr is None:
+        # Respaldo si LaMa falló: el método clásico de antes.
+        resultado_bgr = cv2.inpaint(img_bgr, mask_bin, inpaintRadius=7, flags=cv2.INPAINT_TELEA)
+
+    # Componemos SOLO la zona pintada (con un difuminado leve de 2-3px en
+    # el borde) sobre la imagen original, para que nada fuera del logo
+    # cambie ni un píxel.
+    mask_blur = cv2.GaussianBlur(mask_bin, (5, 5), 0).astype(np.float32) / 255.0
+    mask_blur_3c = np.repeat(mask_blur[:, :, None], 3, axis=2)
+    final_bgr = (resultado_bgr.astype(np.float32) * mask_blur_3c +
+                 img_bgr.astype(np.float32) * (1 - mask_blur_3c)).astype(np.uint8)
+
+    ruta_salida = '/kaggle/working/sin_logo.png'
+    cv2.imwrite(ruta_salida, final_bgr)
+    print(f"✅ [LOGO] Guardado en {ruta_salida}")
+    return ruta_salida
+
+import ctypes, gc
+
+def purgar_memoria_profunda():
+    """Devuelve al SO la RAM que las librerías C/C++ (ONNX, SciPy, OpenCV) dejan retenida."""
+    gc.collect()
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    try:
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+        print("🧹 [SISTEMA] RAM residual purgada y devuelta al servidor.")
+    except Exception:
+        pass
+
+import multiprocessing, queue as _queue
+
+def _worker_aislado(func, q, args, kwargs):
+    """Trabajador desechable: corre la función y devuelve el resultado por la cola."""
+    try:
+        q.put({"estado": "ok", "resultado": func(*args, **kwargs)})
+    except Exception as e:
+        q.put({"estado": "error", "error": str(e)})
+
+def ejecutar_aislado(func, *args, **kwargs):
+    """Ejecuta func en un subproceso (fork). Al terminar, Linux recupera el 100% de su RAM."""
+    ctx = multiprocessing.get_context('fork')
+    q = ctx.Queue()
+    p = ctx.Process(target=_worker_aislado, args=(func, q, args, kwargs))
+    p.start()
+    res = None
+    while res is None:
+        if chequear_interrupcion():
+            p.terminate(); p.join()
+            raise ProcesoInterrumpidoError(f"Cancelado por el usuario ({func.__name__})")
+        try:
+            res = q.get(timeout=0.5)
+        except _queue.Empty:
+            if not p.is_alive():
+                # el proceso murió: último intento por si el resultado quedó en la cola
+                try:
+                    res = q.get(timeout=1)
+                except _queue.Empty:
+                    pass
+                break
+    p.join()
+    if res is None:
+        raise RuntimeError(f"El subproceso de {func.__name__} murió sin resultado (posible OOM, código {p.exitcode}).")
+    if res["estado"] == "error":
+        raise Exception(res["error"])
+    return res["resultado"]
+
+from PIL import ImageOps, ImageCms
+
+def ingesta_segura(ruta_in, ruta_out):
+    """Pre-Flight: hornea rotación EXIF, convierte ICC -> sRGB y guarda PNG lossless.
+    Devuelve (ruta_out, metadatos_originales) o (ruta_in, {}) si algo falla."""
+    try:
+        with Image.open(ruta_in) as im:
+            meta = {"dpi": im.info.get("dpi")}
+            exif = im.getexif()
+            icc_origen = im.info.get("icc_profile")
+
+            im = ImageOps.exif_transpose(im)   # gira los píxeles y limpia la orientación
+            exif_limpio = im.getexif()
+            if exif_limpio is not None and 274 in exif_limpio:
+                exif_limpio[274] = 1
+            meta["exif"] = exif_limpio.tobytes() if exif_limpio else None
+
+            im = im.convert("RGB")
+            srgb = ImageCms.createProfile("sRGB")
+            if icc_origen:
+                try:
+                    perfil_origen = ImageCms.ImageCmsProfile(io.BytesIO(icc_origen))
+                    im = ImageCms.profileToProfile(im, perfil_origen, srgb, outputMode="RGB")
+                except Exception as e_icc:
+                    print(f"⚠️ [INGESTA] ICC no convertible ({e_icc}); se asume sRGB.")
+            meta["icc_profile"] = ImageCms.ImageCmsProfile(srgb).tobytes()
+            im.save(ruta_out, format="PNG")
+        print(f"🛫 [INGESTA] Imagen esterilizada (EXIF horneado, sRGB) -> {ruta_out}")
+        return ruta_out, meta
+    except Exception as e:
+        print(f"⚠️ [INGESTA] Falló ({e}); se usa la imagen original.")
+        return ruta_in, {}
+
+# ==============================================================================
+# MOTOR DE CAPAS EN RAM (float32): las IAs generan máscaras, el render compone una vez
+# ==============================================================================
+def cargar_contexto(ruta_png, metadatos):
+    """Carga la imagen ya esterilizada (ingesta_segura) como matriz float32 [0,1]."""
+    with Image.open(ruta_png) as im:
+        base = np.array(im.convert("RGB")).astype(np.float32) / 255.0
+    return {
+        "base_rgb_32f": base,            # Capa 0: foto original
+        "alpha_sujeto_32f": None,        # Máscara del sujeto [H,W,1]
+        "color_sujeto_32f": None,        # Capa 1: sujeto decontaminado
+        "fondo_nuevo_rgb_32f": None,     # Capa -1: fondo nuevo
+        "rostro_parche_32f": None,       # Capa 2: rostro restaurado (reservado)
+        "rostro_mascara_32f": None,      # Máscara del rostro (reservado)
+        "metadatos": metadatos if metadatos is not None else {},
+    }
+
+def preparar_fondo(contexto, fondo_id, ruta_fondo_custom=None):
+    """Busca el fondo elegido y lo carga (escalado a la foto) como capa float32. No compone."""
+    if str(fondo_id) == '0':
+        return contexto
+    ruta_fondo = ruta_fondo_custom if (ruta_fondo_custom and os.path.exists(ruta_fondo_custom)) else None
+    for ext in ([] if ruta_fondo else ['jpg', 'jpeg', 'png', 'JPG', 'JPEG', 'PNG']):
+        encontrados = glob.glob(f'/kaggle/input/**/{fondo_id}.{ext}', recursive=True)
+        con_fondo = [p for p in encontrados if 'fondo' in p.lower()]
+        if con_fondo:
+            ruta_fondo = con_fondo[0]; break
+        elif encontrados:
+            ruta_fondo = encontrados[0]; break
+    if ruta_fondo is None:
+        print(f"⚠️ [FONDO] No se encontró '{fondo_id}.(jpg|jpeg|png)' en /kaggle/input/. Se entrega el recorte con transparencia.")
+        return contexto
+    alto, ancho = contexto["base_rgb_32f"].shape[:2]
+    with Image.open(ruta_fondo) as f:
+        fondo_pil = f.convert("RGB").resize((ancho, alto), Image.LANCZOS)
+    contexto["fondo_nuevo_rgb_32f"] = np.array(fondo_pil).astype(np.float32) / 255.0
+    print(f"✅ [FONDO] Fondo cargado en RAM desde {ruta_fondo}.")
+    return contexto
+
+def aplicar_correccion_impresion_array(np_rgb, fuerza=0.35):
+    """Anti-naranja sobre una matriz uint8 RGB en RAM (misma lógica que la versión por archivo)."""
+    print("🎨 [COLOR] Aplicando corrección de imprenta anti-naranja...")
+    ycrcb = cv2.cvtColor(np_rgb, cv2.COLOR_RGB2YCrCb)
+    mascara_piel = cv2.inRange(ycrcb, (0, 135, 85), (255, 180, 135)).astype(np.float32) / 255.0
+    mascara_piel = cv2.GaussianBlur(mascara_piel, (15, 15), 0)
+    lab = cv2.cvtColor(np_rgb, cv2.COLOR_RGB2LAB).astype(np.float32)
+    L, A, B = lab[:, :, 0], lab[:, :, 1], lab[:, :, 2]
+    exceso_naranja = np.clip(B - 128.0, 0, None)
+    correccion = exceso_naranja * fuerza * mascara_piel
+    B2 = np.clip(B - correccion, 0, 255)
+    A2 = np.clip(A - correccion * 0.25, 0, 255)
+    lab_corregido = np.stack([L, A2, B2], axis=-1).astype(np.uint8)
+    return cv2.cvtColor(lab_corregido, cv2.COLOR_LAB2RGB)
+
+def aplicar_retoque_manual_piel(np_rgb, temp=0, sat=0, lum=0):
+    """Retoque manual de piel (-50..50) con máscara CONTINUA (sin cv2.inRange): incluye
+    pieles muy pálidas (Cr ~126-132) y no deja parches grises ni bloques."""
+    if temp == 0 and sat == 0 and lum == 0: return np_rgb
+    print(f"🎨 [COLOR] Retoque manual de piel (Temperatura:{temp}, Saturación:{sat}, Luminosidad:{lum})...")
+    img_f = np_rgb.astype(np.float32)
+
+    ycrcb = cv2.cvtColor(np_rgb, cv2.COLOR_RGB2YCrCb).astype(np.float32)
+    Cr, Cb = ycrcb[:, :, 1], ycrcb[:, :, 2]
+    peso_cr = np.clip((Cr - 125.0) / 10.0, 0.0, 1.0) * np.clip((188.0 - Cr) / 12.0, 0.0, 1.0)
+    peso_cb = np.clip((Cb - 75.0) / 10.0, 0.0, 1.0) * np.clip((142.0 - Cb) / 10.0, 0.0, 1.0)
+    h, w = np_rgb.shape[:2]
+    sigma = max(8.0, min(h, w) * 0.02)
+    mascara = cv2.GaussianBlur(peso_cr * peso_cb, (0, 0), sigmaX=sigma)[:, :, None]
+
+    rgb_mod = np.clip(img_f * (1.0 + lum / 150.0), 0, 255)
+    luma = (0.299 * rgb_mod[:, :, 0] + 0.587 * rgb_mod[:, :, 1] + 0.114 * rgb_mod[:, :, 2])[:, :, None]
+    rgb_mod = np.clip(luma + (rgb_mod - luma) * (1.0 + sat / 100.0), 0, 255)
+
+    ajuste_t = temp * 0.55
+    rgb_mod[:, :, 0] = np.clip(rgb_mod[:, :, 0] + ajuste_t, 0, 255)
+    rgb_mod[:, :, 1] = np.clip(rgb_mod[:, :, 1] + ajuste_t * 0.15, 0, 255)
+    rgb_mod[:, :, 2] = np.clip(rgb_mod[:, :, 2] - ajuste_t, 0, 255)
+
+    peso = np.clip(mascara * 0.85 + 0.15, 0.0, 1.0)   # 85% piel + 15% ambiental (se parece más a la vista previa)
+    res = rgb_mod * peso + img_f * (1.0 - peso)
+    return np.clip(res + 0.5, 0, 255).astype(np.uint8)
+
+def aplicar_retoque_manual_archivo(ruta_imagen, temp, sat, lum):
+    """Versión por archivo (para los comandos que no pasan por exportar_composicion)."""
+    img = Image.open(ruta_imagen)
+    tiene_alpha = (img.mode == "RGBA")
+    np_rgb = aplicar_retoque_manual_piel(np.array(img.convert("RGB")), temp, sat, lum)
+    if tiene_alpha:
+        alpha = np.array(img.convert("RGBA"))[:, :, 3]
+        Image.fromarray(np.dstack([np_rgb, alpha]), mode="RGBA").save(ruta_imagen)
+    elif str(ruta_imagen).lower().endswith((".jpg", ".jpeg")):
+        Image.fromarray(np_rgb, mode="RGB").save(ruta_imagen, quality=100, subsampling=0)
+    else:
+        Image.fromarray(np_rgb, mode="RGB").save(ruta_imagen)
+    return ruta_imagen
+
+def _aplicar_nitidez_imprenta_lab(np_rgb, fuerza=0.45, radio_sigma=1.2):
+    """Unsharp Mask SOLO en el canal L de LAB (ojos, cabello, bordados) sin ruido de color.
+    Ignora micro-variaciones planas (< ~1.5 niveles) para no amplificar ruido."""
+    lab = cv2.cvtColor(np_rgb, cv2.COLOR_RGB2LAB)
+    L = lab[:, :, 0].astype(np.float32)
+    detalle = L - cv2.GaussianBlur(L, (0, 0), sigmaX=radio_sigma, sigmaY=radio_sigma)
+    mascara_detalle = np.clip((np.abs(detalle) - 1.5) / 4.0, 0.0, 1.0)
+    lab[:, :, 0] = np.clip(L + detalle * fuerza * mascara_detalle + 0.5, 0, 255).astype(np.uint8)
+    del L, detalle, mascara_detalle
+    return cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+
+def _tamano_impresion(dimension, ancho, alto, dpi=300, min_lado_largo_px=3000):
+    """'30x42' (cm) -> (w_px, h_px) a 300 DPI, respetando la orientación y SIN deformar.
+    Si es 'original' y la foto es pequeña, la escala a un mínimo de min_lado_largo_px en su lado largo.
+    Devuelve None si no aplica ningún remuestreo."""
+    if not dimension or str(dimension).lower() == "original":
+        lado_actual = max(ancho, alto)
+        if lado_actual < min_lado_largo_px:
+            esc = min_lado_largo_px / float(lado_actual)
+            return int(round(ancho * esc)), int(round(alto * esc))
+        return None
+    try:
+        a_cm, b_cm = [float(v) for v in str(dimension).lower().replace(",", ".").split("x")]
+    except Exception:
+        print(f"⚠️ [RENDER] Dimensión '{dimension}' no reconocida. Se mantiene resolución original.")
+        return None
+    lado_corto_cm, lado_largo_cm = sorted((a_cm, b_cm))
+    corto = int(round(lado_corto_cm / 2.54 * dpi))
+    largo = int(round(lado_largo_cm / 2.54 * dpi))
+    t_w, t_h = (largo, corto) if ancho >= alto else (corto, largo)
+    esc = min(t_w / ancho, t_h / alto)
+    if abs((ancho / alto) / (t_w / t_h) - 1.0) > 0.01:
+        print("ℹ️ [RENDER] La proporción de la foto difiere del papel; se escala sin deformar (puede no llenar el papel por completo).")
+        t_w, t_h = int(round(ancho * esc)), int(round(alto * esc))
+    return t_w, t_h
+def exportar_composicion(contexto, ruta_salida, dimension_elegida="original", fuerza_naranja=0.0, retoque=None):
+    """Aplana las capas en float32, remuestrea a tamaño de impresión (Lanczos), aplica el
+    anti-naranja en RAM y guarda UNA sola vez en JPEG calidad 100 / sin submuestreo de croma
+    con DPI, ICC y EXIF. Si hay recorte sin fondo nuevo, devuelve un PNG con transparencia."""
+    import gc
+    print("🖨️ [RENDER] Aplanando capas en float32 de alta definición...")
+    comp = contexto["base_rgb_32f"]
+    m_r = contexto.get("rostro_mascara_32f")
+    p_r = contexto.get("rostro_parche_32f")
+    hay_rostro = m_r is not None and p_r is not None
+    if hay_rostro:
+        comp = comp * (1.0 - m_r) + p_r * m_r
+
+    alpha = contexto.get("alpha_sujeto_32f")
+    if alpha is not None:
+        color = contexto["color_sujeto_32f"]
+        if hay_rostro:                       # el rostro también va en la capa del sujeto
+            color = color * (1.0 - m_r) + p_r * m_r
+        fondo = contexto.get("fondo_nuevo_rgb_32f")
+        if fondo is None:
+            rgba = np.dstack([np.clip(color * 255.0 + 0.5, 0, 255), np.clip(alpha * 255.0 + 0.5, 0, 255)]).astype(np.uint8)
+            ruta_png = ruta_salida.rsplit(".", 1)[0] + ".png"
+            Image.fromarray(rgba, mode="RGBA").save(ruta_png, compress_level=1)
+            return ruta_png
+        comp = _componer_sujeto_sobre_fondo(color, alpha, fondo)   # incluye Light Wrap
+
+    # Remuestreo de impresión (Lanczos al ampliar, AREA al reducir)
+    meta = contexto.setdefault("metadatos", {})
+    alto, ancho = comp.shape[:2]
+    objetivo = _tamano_impresion(dimension_elegida, ancho, alto)
+    redimensionado = False
+    fue_ampliada = False
+    if objetivo and objetivo != (ancho, alto):
+        t_w, t_h = objetivo
+        fue_ampliada = (t_w * t_h) > (ancho * alto)
+        print(f"📐 [RENDER] Remuestreando ({dimension_elegida}): {ancho}x{alto} -> {t_w}x{t_h}px a 300 DPI")
+        interp = cv2.INTER_LANCZOS4 if fue_ampliada else cv2.INTER_AREA
+        comp = cv2.resize(np.ascontiguousarray(comp, dtype=np.float32), (t_w, t_h), interpolation=interp)
+        redimensionado = True
+
+    comp8 = np.clip(comp * 255.0 + 0.5, 0, 255).astype(np.uint8)
+    del comp
+
+    # Micro-nitidez en luminancia (más intensa si la foto fue ampliada)
+    comp8 = _aplicar_nitidez_imprenta_lab(comp8, fuerza=0.55 if fue_ampliada else 0.30)
+
+    if fuerza_naranja > 0:
+        comp8 = aplicar_correccion_impresion_array(comp8, fuerza=fuerza_naranja)
+    if retoque:
+        comp8 = aplicar_retoque_manual_piel(comp8, *retoque)
+
+    opciones = {"format": "JPEG", "quality": 100, "subsampling": 0}
+    if redimensionado:
+        meta["dpi"] = (300, 300)             # los píxeles nuevos están pensados para 300 DPI
+    if meta.get("dpi"): opciones["dpi"] = meta["dpi"]
+    if meta.get("icc_profile"): opciones["icc_profile"] = meta["icc_profile"]
+    if meta.get("exif"): opciones["exif"] = meta["exif"]
+
+    ruta_jpg = ruta_salida.rsplit(".", 1)[0] + ".jpg"
+    Image.fromarray(comp8, mode="RGB").save(ruta_jpg, **opciones)
+    del comp8
+    gc.collect()
+    print(f"✅ [RENDER] Composición exportada a {ruta_jpg}.")
+    return ruta_jpg
+
+def ejecutar_recorte_manual_expandible_ctx(contexto, x, y, ancho_cuadro, alto_cuadro, usar_ia_relleno=False):
+    """Recorta/expande la capa base en RAM (float32) usando extrapolación geométrica."""
+    import gc
+    print(f"✂️ [RECORTE MANUAL] Expansión matemática en RAM - x:{x}, y:{y}, w:{ancho_cuadro}, h:{alto_cuadro}")
+    img_32f = contexto["base_rgb_32f"]
+    alto_img, ancho_img = img_32f.shape[:2]
+    x1, y1 = int(x), int(y)
+    x2, y2 = int(x + ancho_cuadro), int(y + alto_cuadro)
+    pad_top, pad_bottom = max(0, -y1), max(0, y2 - alto_img)
+    pad_left, pad_right = max(0, -x1), max(0, x2 - ancho_img)
+    hay_pad = any(v > 0 for v in (pad_top, pad_bottom, pad_left, pad_right))
+
+    if not hay_pad:
+        contexto["base_rgb_32f"] = img_32f[y1:y2, x1:x2].copy()
+        return contexto
+
+    if usar_ia_relleno:
+        img_bgr8 = cv2.cvtColor(np.clip(img_32f * 255.0 + 0.5, 0, 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+        padded_bgr8 = _expansion_matematica_pura(img_bgr8, pad_top, pad_bottom, pad_left, pad_right)
+        img_padded = cv2.cvtColor(padded_bgr8, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        del img_bgr8, padded_bgr8
+    else:
+        img_padded = cv2.copyMakeBorder(img_32f, pad_top, pad_bottom, pad_left, pad_right, cv2.BORDER_CONSTANT, value=(0.0, 0.0, 0.0))
+
+    new_y1, new_y2 = y1 + pad_top, y2 + pad_top
+    new_x1, new_x2 = x1 + pad_left, x2 + pad_left
+    contexto["base_rgb_32f"] = img_padded[new_y1:new_y2, new_x1:new_x2].copy()
+    del img_padded
+    gc.collect()
+    return contexto
+
+def _detectar_y_alinear(face_helper, img_bgr):
+    """Detecta el rostro central probando varias resoluciones. Devuelve True si lo logra."""
+    for rs in (640, 1024, None):
+        face_helper.clean_all()
+        face_helper.read_image(img_bgr)
+        try:
+            n = face_helper.get_face_landmarks_5(only_center_face=True, resize=rs)
+        except Exception as e:
+            print(f"⚠️ [ROSTRO] Detector falló con resize={rs}: {e}")
+            n = 0
+        if n > 0:
+            face_helper.align_warp_face()
+            return len(face_helper.affine_matrices) > 0
+    # último intento: la cara más grande aunque no esté al centro
+    face_helper.clean_all()
+    face_helper.read_image(img_bgr)
+    try:
+        n = face_helper.get_face_landmarks_5(only_center_face=False, resize=640)
+    except Exception:
+        n = 0
+    if n > 0:
+        face_helper.align_warp_face()
+        return len(face_helper.affine_matrices) > 0
+    return False
+
+def ejecutar_restaurar_rostro_ctx(contexto, ruta_rostro_referencia):
+    """Trasplanta el rostro de referencia sobre el panel EN RAM y lo HORNEA en base_rgb_32f
+    (así el render directo y el recorte BiRefNet usan siempre el rostro nuevo).
+    Devuelve el contexto; contexto['rostro_ok'] indica si el trasplante se aplicó de verdad."""
+    import gc
+    contexto["rostro_ok"] = False
+    if not ruta_rostro_referencia or not os.path.exists(ruta_rostro_referencia):
+        print("❌ [ROSTRO] No hay foto de referencia válida. NO se trasplantó nada.")
+        return contexto
+    print("🧑 [ROSTRO] Generando trasplante de rostro HD en memoria...")
+    from facexlib.utils.face_restoration_helper import FaceRestoreHelper
+    face_helper = FaceRestoreHelper(
+        upscale_factor=1, face_size=512, crop_ratio=(1, 1),
+        det_model='retinaface_resnet50', save_ext='png',
+        use_parse=True, device=device
+    )
+
+    img_ref = cv2.imread(ruta_rostro_referencia)
+    if img_ref is None:
+        print("❌ [ROSTRO] No se pudo leer la foto de referencia.")
+        return contexto
+    if not _detectar_y_alinear(face_helper, img_ref):
+        print("❌ [ROSTRO] No se detectó rostro en la referencia.")
+        return contexto
+    affine_ref = np.vstack([face_helper.affine_matrices[0], [0, 0, 1]]).astype(np.float64)   # ref -> plantilla 512
+
+    base = contexto["base_rgb_32f"]
+    alto_img, ancho_img = base.shape[:2]
+    img_target = cv2.cvtColor(np.clip(base * 255.0 + 0.5, 0, 255).astype(np.uint8), cv2.COLOR_RGB2BGR)
+    if not _detectar_y_alinear(face_helper, img_target):
+        print("❌ [ROSTRO] No se detectó rostro en la imagen del panel.")
+        return contexto
+    affine_tgt2 = face_helper.affine_matrices[0].astype(np.float64)                           # panel -> plantilla 512
+    affine_tgt = np.vstack([affine_tgt2, [0, 0, 1]])
+    inv_affine = cv2.invertAffineTransform(affine_tgt2)                                       # plantilla 512 -> panel
+
+    # M: panel -> referencia (resolución completa). dst(p) = ref(M p)  (WARP_INVERSE_MAP)
+    M = np.linalg.inv(affine_ref) @ affine_tgt
+    s = float(np.sqrt(abs(np.linalg.det(M[:2, :2]))))
+    if s > 1.5:                       # referencia mucho más grande que el rostro del panel: pre-reducir
+        f = 1.0 / s
+        img_ref = cv2.resize(img_ref, None, fx=f, fy=f, interpolation=cv2.INTER_AREA)
+        M = np.array([[f, 0, 0], [0, f, 0], [0, 0, 1]], dtype=np.float64) @ M
+    rostro_warpeado = cv2.warpAffine(img_ref, M[:2], (ancho_img, alto_img),
+                                     flags=cv2.INTER_LANCZOS4 | cv2.WARP_INVERSE_MAP,
+                                     borderMode=cv2.BORDER_REPLICATE)
+
+    mascara_512 = np.zeros((512, 512), dtype=np.uint8)
+    cv2.ellipse(mascara_512, (256, 260), (150, 190), 0, 0, 360, 255, -1)
+    mascara_512 = cv2.GaussianBlur(mascara_512, (31, 31), 0)
+    mascara_warpeada = cv2.warpAffine(mascara_512, inv_affine, (ancho_img, alto_img),
+                                      flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+    # Margen de 2 px: seamlessClone falla si la máscara toca el borde
+    mascara_warpeada[:2, :] = 0; mascara_warpeada[-2:, :] = 0
+    mascara_warpeada[:, :2] = 0; mascara_warpeada[:, -2:] = 0
+    _, mascara_binaria = cv2.threshold(mascara_warpeada, 20, 255, cv2.THRESH_BINARY)
+    if not mascara_binaria.any():
+        print("❌ [ROSTRO] La máscara quedó fuera del encuadre. NO se trasplantó nada.")
+        return contexto
+
+    # Alfa suave (feather) que se usa tanto para Poisson como para el respaldo
+    k_f = max(5, int(min(ancho_img, alto_img) * 0.006) | 1)
+    mascara = (cv2.GaussianBlur(mascara_binaria, (k_f, k_f), 0).astype(np.float32) / 255.0)[:, :, None]
+
+    # Centro = centro de la CAJA de la máscara (seamlessClone lo exige así, no la media)
+    x, y, w, h = cv2.boundingRect(mascara_binaria)
+    centro_clone = (x + w // 2, y + h // 2)
+    try:
+        resultado = cv2.seamlessClone(rostro_warpeado, img_target, mascara_binaria, centro_clone, cv2.NORMAL_CLONE)
+        parche = cv2.cvtColor(resultado, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+    except Exception as e:
+        print(f"⚠️ [ROSTRO] Poisson falló ({e}); se usa fusión alfa directa.")
+        parche = cv2.cvtColor(rostro_warpeado, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+
+    nueva_base = np.clip(base * (1.0 - mascara) + parche * mascara, 0.0, 1.0).astype(np.float32)
+    cambio = float(np.abs(nueva_base - base).mean() * 255.0)
+    print(f"📊 [ROSTRO] Cambio medio en la imagen: {cambio:.3f}/255")
+    if cambio < 0.01:
+        print("❌ [ROSTRO] El trasplante no modificó la imagen (algo falló). Se conserva la original.")
+        return contexto
+
+    # HORNEADO en la base; las capas separadas se anulan para no aplicar el rostro dos veces
+    contexto["base_rgb_32f"] = nueva_base
+    contexto["rostro_parche_32f"] = None
+    contexto["rostro_mascara_32f"] = None
+    contexto["rostro_ok"] = True
+    del img_target, rostro_warpeado, mascara_warpeada, mascara_binaria, face_helper, img_ref
+    gc.collect()
+    print("✅ [ROSTRO] Rostro trasplantado y horneado en la imagen base.")
+    return contexto
+
+# ==============================================================================
+# 3. BUCLE MAESTRO (solo procesa tareas de ESTE slot)
+# ==============================================================================
+reportar('escuchando', 100, f"✅ [SLOT {SLOT}] Servidor en línea (sesión {SESION_ID}). Escuchando órdenes de la pestaña {SLOT}...")
+
+# Fases de progreso aproximado por comando, usadas solo para informar a la barra de carga
+FASES_POR_COMANDO = {
+    "solo_encuadre": [("Encuadrando sujeto", 50)],
+    "recorte_manual": [("Recortando manualmente", 30), ("Quitando fondo", 60), ("Aplicando fondo IA", 90)],
+    "solo_mejorar": [("Restaurando rostro (CodeFormer)", 70)],
+    "solo_recortar": [("Quitando fondo", 50), ("Aplicando fondo IA", 90)],
+    "proceso_completo": [("Recorte y expansión", 20), ("Restaurando rostro original", 45), ("Trasplantando rostro", 65), ("Quitando fondo", 80), ("Aplicando fondo IA", 92)],
+    "armonizar_color": [("Armonizando color (HSV+LAB)", 70)],
+    "restaurar_rostro_logo": [("Restaurando rostro original", 40), ("Quitando logo de IA", 80)],
+    # Comando 1/2: corta el sujeto y lo deja SIN fondo (transparente), sin
+    # componer nada todavía. El resultado (PNG con alpha) se reutiliza luego
+    # para probar fondos rápido sin repetir el corte con IA.
+    "cortar_sin_fondo": [("Quitando fondo (sin componer)", 80)],
+    # Comando 2/2: recibe el PNG YA recortado (de "cortar_sin_fondo") y solo
+    # le pega el fondo elegido encima. No vuelve a correr BiRefNet, así que
+    # es mucho más rápido: ideal para "probar" fondos uno tras otro.
+    "probar_fondo": [("Aplicando fondo de prueba", 80)],
+}
+
+# ⏱️ LATIDO (heartbeat): aunque no haya tareas pendientes, avisamos cada
+# pocos segundos que el servidor sigue vivo. Sin esto, el panel no tiene
+# forma de saber si el notebook se cayó o si simplemente está esperando,
+# y por eso antes se veía "desincronizado" al volver a la pestaña.
+INTERVALO_LATIDO_SEG = 10
+ultimo_latido = 0
+
+class TareaYaTomada(Exception):
+    pass
+
+def tomar(actual):
+    if not actual or actual.get("estado") != "pendiente" or str(actual.get("slot")) != SLOT:
+        raise TareaYaTomada()
+    return {**actual, "estado":"procesando", "sesion_proceso":SESION_ID}
+
+def finalizar(cambios):
+    def aplicar(actual):
+        if not actual or actual.get("sesion_proceso") != SESION_ID or actual.get("estado") != "procesando":
+            raise TareaYaTomada()
+        return {**actual, **cambios}
+    tarea_ref.transaction(aplicar)
+
+# Tras adquirir el slot, cerrar los trabajos interrumpidos por la caída del proceso anterior.
+for anterior_id, anterior in (rtdb.reference("tareas_ia").order_by_child("estado").equal_to("procesando").get() or {}).items():
+    if str(anterior.get("slot")) == SLOT:
+        def cerrar_interrumpida(actual):
+            if actual and actual.get("estado") == "procesando" and actual.get("sesion_proceso") == anterior.get("sesion_proceso"):
+                return {**actual, "estado":"error", "mensaje_error":"La sesión anterior terminó antes de completar la entrega."}
+            return actual
+        rtdb.reference(f"tareas_ia/{anterior_id}").transaction(cerrar_interrumpida)
+
+while True:
+    try:
+        # Consultamos RTDB: trae todas las tareas pendientes y filtramos por slot en Python
+        # (RTDB solo permite ordenar/filtrar por UN campo a la vez, así que no podemos
+        # combinar slot + estado en una sola query como hacíamos con Firestore).
+        tareas_pendientes = rtdb.reference('tareas_ia').order_by_child('estado').equal_to('pendiente').get()
+        hubo_tarea = False
+        docs_a_procesar = []
+        if tareas_pendientes:
+            for tarea_id, datos in tareas_pendientes.items():
+                if str(datos.get('slot')) == str(SLOT):
+                    docs_a_procesar.append((tarea_id, datos))
+                    break  # solo procesamos 1 tarea a la vez, igual que antes con .limit(1)
+
+        for tarea_id, datos in docs_a_procesar:
+            tarea_ref = rtdb.reference(f'tareas_ia/{tarea_id}')
+            con_sesion(slot_ref.get(), {})
+            try:
+                datos = tarea_ref.transaction(tomar)
+            except TareaYaTomada:
+                continue
+            try:
+                chequear_interrupcion(forzar=True)  # descarta una orden vieja pulsada en reposo
+                hubo_tarea = True
+                comando = datos.get('comando', 'desconocido')
+                url_imagen = datos.get('url_imagen', '')
+                id_imagen = datos.get('id_imagen', '')
+                url_mascara = datos.get('url_mascara', '')
+                id_mascara = datos.get('id_mascara', '')
+                url_imagen_rostro = datos.get('url_imagen_rostro', '')
+                id_imagen_rostro = datos.get('id_imagen_rostro', '')
+                nivel_fidelidad = float(datos.get('fidelidad', 0.7))
+                fuerza_naranja = float(datos.get('fuerza_naranja', 0.35))
+                mantener_color_original = bool(datos.get('mantener_color_original', True))
+                forzar_lama = bool(datos.get('forzar_lama', False))
+                retoque_activo = bool(datos.get('retoque_activo', False))
+                retoque_temp = int(datos.get('retoque_temp', 0))
+                retoque_sat = int(datos.get('retoque_sat', 0))
+                retoque_lum = int(datos.get('retoque_lum', 0))
+                retoque_piel = (retoque_temp, retoque_sat, retoque_lum) if retoque_activo else None
+                fondo_elegido = datos.get('fondo_id', '0')
+                url_fondo_custom = datos.get('url_fondo_custom', '')
+                id_fondo_custom = datos.get('id_fondo_custom', '')
+                dimension_elegida = datos.get('dimension', 'original')
+                malla_elegida = datos.get('malla_id', '0')
+
+                crop_x = int(datos.get('crop_x', 0))
+                crop_y = int(datos.get('crop_y', 0))
+                crop_w = int(datos.get('crop_w', 0))
+                crop_h = int(datos.get('crop_h', 0))
+
+                # Casilla "Usar CodeFormer" (aplica a "solo_mejorar" y "proceso_completo").
+                # La decide el usuario, no el programa. Sea cual sea, la mejora Real-ESRGAN
+                # + micro-textura se aplica siempre (encima de CodeFormer o sola).
+                usar_codeformer = bool(datos.get('usar_codeformer', True))
+
+                print(f"\n🔔 [NUEVA TAREA][SLOT {SLOT}] Comando: {comando}")
+                reportar('procesando', 5, f"🔔 [SLOT {SLOT}] Nueva tarea recibida: {comando}", tarea_actual=tarea_id)
+
+                if comando == "apagar_servidor":
+                    reportar('apagado', 0, f"🛑 [SLOT {SLOT}] Apagando por orden del panel...")
+                    finalizar({'estado': 'completado'})
+                    sys.exit(0)
+
+                if not url_imagen:
+                    finalizar({'estado': 'error'})
+                    reportar('escuchando', 100, f"⚠️ [SLOT {SLOT}] Tarea sin imagen, descartada. Escuchando de nuevo...")
+                    continue
+
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+                    'Referer': 'https://ibb.co/',
+                    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+                    'Connection': 'close',
+                }
+
+                URL_APPS_SCRIPT_DESCARGA = APPS_URL
+
+                def _es_imagen_valida(ruta):
+                    """Verifica que el archivo descargado sea una imagen real y no,
+                    por ejemplo, la página HTML de 'no se pudo escanear en busca de
+                    virus' que a veces devuelve drive.google.com con status 200."""
+                    try:
+                        with Image.open(ruta) as img:
+                            img.verify()
+                        return True
+                    except Exception:
+                        return False
+
+                def descargar_via_appscript(file_id, destino, intentos=4, timeout=60):
+                    """Pide el archivo directo a Apps Script (que lo lee de Drive con
+                    DriveApp, con sus propios permisos) en vez de golpear el link
+                    público de drive.google.com. Evita por completo la pantalla de
+                    aviso de virus que a veces se le muestra a las IPs de Kaggle."""
+                    for intento in range(1, intentos + 1):
+                        try:
+                            res = requests.post(
+                                URL_APPS_SCRIPT_DESCARGA,
+                                json={"idToken": token_worker(), "action": "download", "fileId": file_id},
+                                timeout=timeout
+                            )
+                            if res.status_code != 200:
+                                print(f"⚠️ [DESCARGA-APPSCRIPT] Intento {intento}/{intentos}: status {res.status_code}")
+                                time.sleep(3 * intento)
+                                continue
+                            datos_resp = res.json()  # si no es JSON, lanza ValueError y cae al except
+                            if not datos_resp.get("success"):
+                                print(f"⚠️ [DESCARGA-APPSCRIPT] Apps Script devolvió error: {datos_resp.get('error')}")
+                                time.sleep(3 * intento)
+                                continue
+                            with open(destino, "wb") as f:
+                                f.write(base64.b64decode(datos_resp["base64"]))
+                            if _es_imagen_valida(destino):
+                                return True
+                            print(f"⚠️ [DESCARGA-APPSCRIPT] Intento {intento}/{intentos}: el archivo bajado no es una imagen válida")
+                        except (requests.exceptions.RequestException, ValueError) as e:
+                            print(f"⚠️ [DESCARGA-APPSCRIPT] Intento {intento}/{intentos} falló: {e}")
+                        time.sleep(3 * intento)
+                    return False
+
+                def descargar_con_reintentos(url, destino, intentos=4, timeout=(10, 45), file_id=None):
+                    """Descarga un archivo con timeout y reintentos, en vez de quedarse
+                    colgado para siempre si el servidor tarda o no responde.
+                    timeout=(conexion, lectura): separa cuánto esperar para conectar
+                    vs. cuánto esperar a que lleguen los datos.
+
+                    Si viene file_id, se prefiere SIEMPRE la descarga vía Apps Script
+                    (más confiable). La URL directa de Drive queda solo como respaldo
+                    para tareas viejas que no tengan file_id guardado."""
+                    if file_id:
+                        if descargar_via_appscript(file_id, destino):
+                            return True
+                        print("⚠️ [DESCARGA] Falló la vía Apps Script, probando con el link directo de Drive como respaldo...")
+
+                    for intento in range(1, intentos + 1):
+                        try:
+                            with requests.Session() as sesion:
+                                res = sesion.get(url, headers=headers, timeout=timeout)
+                            if res.status_code == 200:
+                                with open(destino, 'wb') as f:
+                                    f.write(res.content)
+                                if _es_imagen_valida(destino):
+                                    return True
+                                print(f"⚠️ [DESCARGA] Intento {intento}/{intentos}: el archivo bajado no es una imagen válida (¿pantalla de aviso de Drive?)")
+                            else:
+                                print(f"⚠️ [DESCARGA] Intento {intento}/{intentos}: status {res.status_code} para {url}")
+                        except requests.exceptions.RequestException as e:
+                            print(f"⚠️ [DESCARGA] Intento {intento}/{intentos} falló ({url}): {e}")
+                        time.sleep(3 * intento)  # espera creciente entre reintentos (backoff)
+                    return False
+
+                # "probar_fondo" recibe el PNG YA recortado (con transparencia real);
+                # si lo guardáramos como .jpg perderíamos el canal alpha. El resto
+                # de comandos siguen bajando como .jpg (foto normal de cámara/galería).
+                extension_entrada = "png" if comando == "probar_fondo" else "jpg"
+                ruta_input = f"/kaggle/working/input_{tarea_id}.{extension_entrada}"
+                reportar('procesando', 10, f"⬇️ [SLOT {SLOT}] Descargando imagen de la tarea...", tarea_actual=tarea_id)
+                if not descargar_con_reintentos(url_imagen, ruta_input, file_id=id_imagen):
+                    finalizar({'estado': 'error'})
+                    reportar('escuchando', 100, f"⚠️ [SLOT {SLOT}] Falló la descarga de la imagen tras varios intentos. Escuchando de nuevo...")
+                    continue
+
+                metadatos_originales = {}
+                if extension_entrada == "jpg":
+                    ruta_input, metadatos_originales = ingesta_segura(ruta_input, f"/kaggle/working/ingesta_{tarea_id}.png")
+
+                ruta_mascara = f"/kaggle/working/mascara_{tarea_id}.png"
+                if url_mascara:
+                    if not descargar_con_reintentos(url_mascara, ruta_mascara, file_id=id_mascara):
+                        raise RuntimeError("Falló la descarga de la máscara.")
+
+                ruta_rostro_referencia = None
+                if url_imagen_rostro:
+                    ruta_rostro_referencia = f"/kaggle/working/rostro_ref_{tarea_id}.jpg"
+                    reportar('procesando', 15, f"⬇️ [SLOT {SLOT}] Descargando foto de referencia del rostro...", tarea_actual=tarea_id)
+                    if not descargar_con_reintentos(url_imagen_rostro, ruta_rostro_referencia, file_id=id_imagen_rostro):
+                        raise RuntimeError("Falló la descarga del rostro de referencia.")
+
+                ruta_fondo_custom = None
+                if url_fondo_custom:
+                    ruta_fondo_custom = f"/kaggle/working/fondo_custom_{tarea_id}.jpg"
+                    reportar('procesando', 16, f"⬇️ [SLOT {SLOT}] Descargando fondo personalizado...", tarea_actual=tarea_id)
+                    if not descargar_con_reintentos(url_fondo_custom, ruta_fondo_custom, file_id=id_fondo_custom):
+                        print(f"❌ [SLOT {SLOT}] No se pudo descargar el fondo personalizado.")
+                        ruta_fondo_custom = None
+                if str(fondo_elegido) == 'custom' and not ruta_fondo_custom:
+                    finalizar({'estado': 'error'})
+                    reportar('escuchando', 100, f"❌ [SLOT {SLOT}] No se pudo descargar el fondo personalizado. Escuchando de nuevo...")
+                    continue
+
+                fases = FASES_POR_COMANDO.get(comando, [("Procesando", 60)])
+
+                # ENRUTADOR SIMPLIFICADO (con reporte de progreso real por fase)
+                ruta_resultado = None
+                if comando == "solo_encuadre":
+                    reportar('procesando', fases[0][1], f"🎯 [SLOT {SLOT}] {fases[0][0]}...", tarea_actual=tarea_id)
+                    ruta_resultado = ejecutar_fase_0_encuadre(ruta_input)
+
+                elif comando == "recorte_manual":
+                    reportar('procesando', fases[0][1], f"✂️ [SLOT {SLOT}] {fases[0][0]}...", tarea_actual=tarea_id)
+                    paso_recorte = ejecutar_recorte_manual_expandible(ruta_input, crop_x, crop_y, crop_w, crop_h, usar_ia_relleno=((str(fondo_elegido) == '0') or forzar_lama))
+
+                    if str(fondo_elegido) == '0':
+                        print("🖼️ [FONDO] fondo_id=0 -> Manteniendo fondo original (Se omite extracción IA).")
+                        ruta_resultado = paso_recorte
+                    else:
+                        reportar('procesando', fases[1][1], f"🧼 [SLOT {SLOT}] {fases[1][0]}...", tarea_actual=tarea_id)
+                        paso_sin_fondo = ejecutar_aislado(ejecutar_fase_2_recorte, paso_recorte)
+                        reportar('procesando', fases[2][1], f"🖼️ [SLOT {SLOT}] {fases[2][0]}...", tarea_actual=tarea_id)
+                        ruta_resultado = ejecutar_aislado(ejecutar_fase_3_fondo, paso_sin_fondo, fondo_id=fondo_elegido, ruta_fondo_custom=ruta_fondo_custom)
+
+                elif comando == "solo_mejorar":
+                    reportar('procesando', fases[0][1], f"✨ [SLOT {SLOT}] {fases[0][0]}...", tarea_actual=tarea_id)
+                    ruta_resultado = ejecutar_fase_1_restauracion(ruta_input, fidelidad=nivel_fidelidad, mantener_color_original=mantener_color_original, usar_codeformer=usar_codeformer)
+
+                elif comando == "solo_recortar":
+                    if str(fondo_elegido) == '0':
+                        print("🖼️ [FONDO] fondo_id=0 -> Manteniendo fondo original (Se omite extracción IA).")
+                        ruta_resultado = ruta_input
+                    else:
+                        reportar('procesando', fases[0][1], f"🧼 [SLOT {SLOT}] {fases[0][0]}...", tarea_actual=tarea_id)
+                        contexto = cargar_contexto(ruta_input, metadatos_originales)
+                        capas = ejecutar_aislado(ejecutar_fase_2_recorte_ctx, contexto)
+                        contexto.update(capas)
+                        del capas
+                        reportar('procesando', fases[1][1], f"🖼️ [SLOT {SLOT}] {fases[1][0]}...", tarea_actual=tarea_id)
+                        preparar_fondo(contexto, fondo_elegido, ruta_fondo_custom)
+                        ruta_resultado = exportar_composicion(contexto, f"/kaggle/working/resultado_{tarea_id}.jpg", dimension_elegida, fuerza_naranja, retoque=retoque_piel)
+                        del contexto
+                        gc.collect()
+
+                elif comando == "proceso_completo":
+                    # Motor de capas en RAM (float32): nada toca el disco hasta el render final.
+                    reportar('procesando', fases[0][1], f"✂️ [SLOT {SLOT}] {fases[0][0]}...", tarea_actual=tarea_id)
+                    contexto = cargar_contexto(ruta_input, metadatos_originales)
+                    contexto = ejecutar_recorte_manual_expandible_ctx(
+                        contexto, crop_x, crop_y, crop_w, crop_h,
+                        usar_ia_relleno=((str(fondo_elegido) == '0') or forzar_lama)
+                    )
+
+                    # Rostro de referencia (CodeFormer es una herramienta externa por archivos)
+                    ref_efectiva = ruta_rostro_referencia
+                    if not ref_efectiva:
+                        # Una sola foto: ella misma es la referencia (se recorta su rostro y se restaura)
+                        print("ℹ️ [ROSTRO] No hay foto de referencia: se restaura el rostro de la propia foto.")
+                        ref_efectiva = _referencia_desde_foto_unica(ruta_input, f"/kaggle/working/rostro_auto_{tarea_id}.png")
+
+                    if ref_efectiva:
+                        reportar('procesando', fases[1][1], f"✨ [SLOT {SLOT}] {fases[1][0]}...", tarea_actual=tarea_id)
+                        # CodeFormer según la casilla; la mejora matemática se aplica siempre
+                        rostro_limpio = ejecutar_fase_1_restauracion(ref_efectiva, fidelidad=nivel_fidelidad, mantener_color_original=mantener_color_original, usar_codeformer=usar_codeformer)
+                    else:
+                        print("⚠️ [SISTEMA] No se pudo obtener un rostro de referencia. Se omitirá el trasplante.")
+                        rostro_limpio = None
+
+                    if ref_efectiva and not rostro_limpio:
+                        print("⚠️ [ROSTRO] La restauración no devolvió resultado; se usa la foto de referencia SIN restaurar.")
+                        rostro_limpio = ref_efectiva
+
+                    if rostro_limpio:
+                        reportar('procesando', fases[2][1], f"🧑 [SLOT {SLOT}] {fases[2][0]}...", tarea_actual=tarea_id)
+                        contexto = ejecutar_restaurar_rostro_ctx(contexto, rostro_limpio)
+                        if not contexto.get("rostro_ok") and rostro_limpio != ref_efectiva:
+                            print("🔁 [ROSTRO] Reintentando con la referencia original (sin CodeFormer)...")
+                            contexto = ejecutar_restaurar_rostro_ctx(contexto, ref_efectiva)
+
+                    if str(fondo_elegido) == '0':
+                        print("🖼️ [FONDO] fondo_id=0 -> Manteniendo fondo expandido/original.")
+                    else:
+                        reportar('procesando', fases[3][1], f"🧼 [SLOT {SLOT}] {fases[3][0]}...", tarea_actual=tarea_id)
+                        capas = ejecutar_aislado(ejecutar_fase_2_recorte_ctx, contexto)
+                        contexto.update(capas)
+                        del capas
+                        reportar('procesando', fases[4][1], f"🖼️ [SLOT {SLOT}] {fases[4][0]}...", tarea_actual=tarea_id)
+                        preparar_fondo(contexto, fondo_elegido, ruta_fondo_custom)
+
+                    reportar('procesando', 95, f"🖨️ [SLOT {SLOT}] Renderizando para impresión...", tarea_actual=tarea_id)
+                    ruta_resultado = exportar_composicion(contexto, f"/kaggle/working/resultado_{tarea_id}.jpg", dimension_elegida, fuerza_naranja, retoque=retoque_piel)
+                    del contexto
+                    gc.collect()
+
+                elif comando == "armonizar_color":
+                    reportar('procesando', fases[0][1], f"🎨 [SLOT {SLOT}] {fases[0][0]}...", tarea_actual=tarea_id)
+                    ruta_resultado = ejecutar_fase_6_armonizacion(ruta_input, ruta_mascara, nivel_fidelidad)
+
+                elif comando == "restaurar_rostro_logo":
+                    reportar('procesando', fases[0][1], f"🧑 [SLOT {SLOT}] {fases[0][0]}...", tarea_actual=tarea_id)
+                    paso_rostro = ejecutar_restaurar_rostro(ruta_input, ruta_rostro_referencia)
+                    reportar('procesando', fases[1][1], f"🧽 [SLOT {SLOT}] {fases[1][0]}...", tarea_actual=tarea_id)
+                    ruta_resultado = ejecutar_quitar_logo(paso_rostro, ruta_mascara if url_mascara else None)
+
+                elif comando == "cortar_sin_fondo":
+                    # Este comando SE MANTIENE igual: su única función es dejar PNG transparente
+                    reportar('procesando', fases[0][1], f"🧼 [SLOT {SLOT}] {fases[0][0]}...", tarea_actual=tarea_id)
+                    ruta_resultado = ejecutar_aislado(ejecutar_fase_2_recorte, ruta_input)
+
+                elif comando == "probar_fondo":
+                    # ruta_input YA es el PNG con transparencia (se subió tal cual,
+                    # sin volver a pasar por BiRefNet): por eso esta rama es rápida.
+                    reportar('procesando', fases[0][1], f"🖼️ [SLOT {SLOT}] {fases[0][0]}...", tarea_actual=tarea_id)
+                    ruta_resultado = ejecutar_aislado(ejecutar_fase_3_fondo, ruta_input, fondo_id=fondo_elegido, ruta_fondo_custom=ruta_fondo_custom)
+                else:
+                    finalizar({'estado': 'error'})
+                    reportar('escuchando', 100, f"⚠️ [SLOT {SLOT}] Comando desconocido. Escuchando de nuevo...")
+                    continue
+
+                ruta_sin_malla, ruta_con_malla = None, None
+                if ruta_resultado and os.path.exists(ruta_resultado):
+                    # El retoque de piel ya se aplicó en RAM si el render pasó por exportar_composicion (.jpg)
+                    retoque_ya_aplicado = (comando in ("proceso_completo", "solo_recortar") and str(ruta_resultado).startswith(f"/kaggle/working/resultado_{tarea_id}") and str(ruta_resultado).lower().endswith(".jpg"))
+                    fuerza_fase5 = 0.0 if retoque_ya_aplicado else fuerza_naranja
+                    if retoque_piel and not retoque_ya_aplicado:
+                        # Primero el anti-naranja automático y DESPUÉS el retoque manual,
+                        # para que Fase 5 no borre la temperatura cálida elegida en el panel.
+                        if fuerza_naranja > 0:
+                            aplicar_correccion_impresion(ruta_resultado, fuerza=fuerza_naranja)
+                        aplicar_retoque_manual_archivo(ruta_resultado, *retoque_piel)
+                        fuerza_fase5 = 0.0
+                    reportar('procesando', 92, f"🖼️ [SLOT {SLOT}] Aplicando enmarcado/malla final...", tarea_actual=tarea_id)
+                    ruta_sin_malla, ruta_con_malla = ejecutar_fase_5_enmarcado(ruta_resultado, dimension_elegida, malla_elegida, fuerza_fase5)
+
+                # 🔥 SISTEMA DE SUBIDA A DRIVE EN UN SOLO BLOQUE (VÍA APPS SCRIPT) 🔥
+                if ruta_sin_malla and os.path.exists(ruta_sin_malla):
+                    reportar('procesando', 97, f"☁️ [SLOT {SLOT}] Subiendo resultado a Google Drive...", tarea_actual=tarea_id)
+                
+                    URL_APPS_SCRIPT = APPS_URL
+
+                    def subir_drive(ruta_archivo, intentos=3):
+                        # Subida en UN SOLO bloque en vez de ~15-20 peticiones POST por
+                        # foto (chunks). Enviar muchas peticiones seguidas desde una IP
+                        # de datacenter como Kaggle es justo el patrón que el WAF de
+                        # Google clasifica como "cantidades garrafales de información" /
+                        # tráfico sospechoso y termina bloqueando a mitad de subida.
+                        # Usa la acción "upload" que ya existe en el Apps Script
+                        # desplegado (no requiere publicar una nueva versión).
+                        # Único paso con pérdida: PNG intermedio (RGB, sin transparencia)
+                        # -> JPEG calidad 100, sin submuestreo de croma, conservando
+                        # DPI / perfil ICC / EXIF de la foto original.
+                        if ruta_archivo.lower().endswith(".png"):
+                            try:
+                                with Image.open(ruta_archivo) as im_png:
+                                    if im_png.mode == "RGB":
+                                        info_orig = metadatos_originales
+                                        opciones = {"format": "JPEG", "quality": 100, "subsampling": 0}
+                                        if info_orig.get("dpi"): opciones["dpi"] = info_orig["dpi"]
+                                        if info_orig.get("icc_profile"): opciones["icc_profile"] = info_orig["icc_profile"]
+                                        if info_orig.get("exif"): opciones["exif"] = info_orig["exif"]
+                                        ruta_jpg_final = ruta_archivo[:-4] + "_final.jpg"
+                                        im_png.save(ruta_jpg_final, **opciones)
+                                        ruta_archivo = ruta_jpg_final
+                            except Exception as e_conv:
+                                print(f"⚠️ [SUBIDA] No se pudo convertir a JPEG ({e_conv}); se sube el PNG.")
+
+                        for intento in range(1, intentos + 1):
+                            try:
+                                with open(ruta_archivo, "rb") as f:
+                                    base64_completo = base64.b64encode(f.read()).decode('utf-8')
+
+                                prefijo = "resultado" if "malla" not in ruta_archivo else "resultado_malla"
+                                es_jpg = ruta_archivo.lower().endswith(".jpg") or ruta_archivo.lower().endswith(".jpeg")
+                                nombre_final = f"{prefijo}_{tarea_id}.jpg" if es_jpg else f"{prefijo}_{tarea_id}.png"
+
+                                print(f"☁️ [SUBIDA] Enviando {nombre_final} en 1 solo bloque a Drive (intento {intento}/{intentos})...")
+
+                                with requests.Session() as sesion:
+                                    res = sesion.post(URL_APPS_SCRIPT, json={
+                                        "idToken": token_worker(), "action": "upload",
+                                        "filename": nombre_final,
+                                        "mimetype": "image/jpeg" if es_jpg else "image/png",
+                                        "base64": base64_completo
+                                    }, timeout=(10, 120), allow_redirects=True)
+
+                                if res.status_code != 200:
+                                    raise Exception(f"HTTP {res.status_code} de Google al subir")
+
+                                try:
+                                    datos = res.json()
+                                except ValueError:
+                                    raise Exception("Apps Script no devolvió JSON válido (posible bloqueo de proxy o falta 'Nueva versión' publicada).")
+
+                                if datos.get("success"):
+                                    print(f"✅ [SUBIDA] Guardado exitosamente: {datos.get('url')}")
+                                    return datos.get("url"), datos.get("fileId")
+                                else:
+                                    raise Exception(f"Apps Script Error: {datos}")
+
+                            except Exception as e:
+                                print(f"⚠️ [SUBIDA] Intento {intento}/{intentos} falló: {e}")
+                                if intento < intentos:
+                                    time.sleep(5 * intento)  # margen para que el proxy libere nuestra IP
+
+                        print(f"❌ [SUBIDA] Se agotaron los {intentos} intentos para {ruta_archivo}.")
+                        return "", ""
+
+                    if str(malla_elegida) != "0" and not (ruta_con_malla and os.path.isfile(ruta_con_malla)):
+                        raise RuntimeError("No se generó la malla solicitada.")
+                    url_final_sin_malla, id_sin_malla = subir_drive(ruta_sin_malla)
+                    url_final_con_malla, id_con_malla = "", ""
+                
+                    if ruta_con_malla and os.path.exists(ruta_con_malla):
+                        url_final_con_malla, id_con_malla = subir_drive(ruta_con_malla)
+                        if not url_final_con_malla:
+                            raise RuntimeError("Falló la subida de la versión con malla.")
+
+                    if url_final_sin_malla:
+                        datos_actualizar = {'estado': 'completado', 'url_resultado': url_final_sin_malla, 'drive_id': id_sin_malla}
+                        if url_final_con_malla:
+                            datos_actualizar['url_resultado_malla'] = url_final_con_malla
+                            datos_actualizar['drive_id_malla'] = id_con_malla
+                        finalizar(datos_actualizar)
+                    else:
+                        finalizar({'estado': 'error'})
+                else:
+                    finalizar({'estado': 'error'})
+            except TareaYaTomada:
+                continue
+            except ProcesoInterrumpidoError as e:
+                print(f"🛑 [SLOT {SLOT}] {e}")
+                reportar('error', 0, f"🛑 [SLOT {SLOT}] Tarea cancelada por el usuario", tarea_actual=tarea_id)
+                finalizar({'estado': 'error'})
+                purgar_memoria_profunda()
+                reportar('escuchando', 100, f"✅ [SLOT {SLOT}] Cancelada. Escuchando de nuevo...")
+                ultimo_latido = time.time()
+                continue
+
+            except Exception as error:
+                finalizar({"estado":"error", "mensaje_error":str(error)[:500]})
+                reportar("escuchando", 100, f"Falló la tarea {tarea_id}. Escuchando de nuevo.")
+                purgar_memoria_profunda()
+                continue
+
+            reportar('escuchando', 100, f"✅ [SLOT {SLOT}] Tarea finalizada. Escuchando de nuevo...")
+            purgar_memoria_profunda()
+            ultimo_latido = time.time()
+
+        if not hubo_tarea and (time.time() - ultimo_latido) > INTERVALO_LATIDO_SEG:
+            reportar('escuchando', 100, f"✅ [SLOT {SLOT}] Escuchando... (latido {time.strftime('%H:%M:%S')}, sesión {SESION_ID})")
+            ultimo_latido = time.time()
+
+    except Exception as e:
+        print(f"⚠️ [ERROR][SLOT {SLOT}]: {e}")
+        reportar('error', 0, f"⚠️ [SLOT {SLOT}] Error: {e}")
+        purgar_memoria_profunda()
+    time.sleep(3)

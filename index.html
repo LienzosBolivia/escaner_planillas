@@ -155,7 +155,6 @@
                 <div class="mb-4 bg-gray-700 p-3 rounded border border-blue-500">
                     <label class="block text-sm font-bold text-blue-300 mb-2">☁️ Método de Subida (imágenes al servidor):</label>
                     <select id="metodoSubida-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
-                        <option value="imgbb" selected>🚀 ImgBB (Alternativo - Más Rápido)</option>
                         <option value="drive">📂 Google Drive (Actual - Seguro)</option>
                     </select>
                     <p class="text-[11px] text-gray-400 mt-1">Si cargas una imagen del historial, se reutiliza su enlace existente y no se sube de nuevo.</p>
@@ -555,23 +554,29 @@
 
         };
 
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         const app = initializeApp(firebaseConfig);
 
         const db = getDatabase(app); // Ahora usamos getDatabase
 
-        const API_KEY_IMGBB = "3af64fc1fb954aac84a218bc2b3450c0"; // ya no se usa para subir, se deja por si acaso
-
-        async function subirAImgBB(archivoOBlob) {
-            const formData = new FormData();
-            formData.append("image", archivoOBlob);
-            const resp = await fetch("https://api.imgbb.com/1/upload?key=" + API_KEY_IMGBB, { method: "POST", body: formData });
-            const data = await resp.json();
-            if (!data.success) throw new Error("Error en ImgBB: " + ((data.error && data.error.message) || "desconocido"));
-            return { success: true, url: data.data.url, fileId: "" };
+        const auth = getAuth(app);
+        await auth.authStateReady();
+        if (!auth.currentUser) {
+            const acceso = document.createElement("dialog");
+            acceso.innerHTML = '<button type="button">Ingresar al taller con Google</button><p></p>';
+            document.body.append(acceso);
+            acceso.showModal();
+            await new Promise(resolve => {
+                acceso.querySelector("button").onclick = async () => {
+                    try { await signInWithPopup(auth, new GoogleAuthProvider()); acceso.close(); resolve(); }
+                    catch (error) { acceso.querySelector("p").textContent = error.message; }
+                };
+            });
         }
-
-
-
+        const salir = document.createElement("button");
+        salir.textContent = "Cerrar sesión · " + auth.currentUser.email;
+        salir.onclick = async () => { await signOut(auth); location.reload(); };
+        document.body.prepend(salir);
         // 📤 Sube un archivo/blob a Google Drive a través del Apps Script (doPost,
 
         // action "upload"), en vez de a ImgBB. Kaggle tiene que descargar estas
@@ -601,6 +606,7 @@
         }
 
         async function llamarAppsScript(urlWebHook, cuerpo, reintentos = 3) {
+            if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(urlWebHook)) throw new Error("Configurá la URL /exec de tu Apps Script.");
             for (let intento = 1; intento <= reintentos; intento++) {
                 let textoCrudo;
                 try {
@@ -609,7 +615,7 @@
                         headers: {
                             "Content-Type": "text/plain;charset=utf-8" // evita el preflight OPTIONS que Apps Script rechaza
                         },
-                        body: JSON.stringify(cuerpo),
+                        body: JSON.stringify({ ...cuerpo, idToken: await auth.currentUser.getIdToken() }),
                         redirect: "follow"
                     });
                     textoCrudo = await respuesta.text();
@@ -683,6 +689,7 @@
                 action: "assemble",
                 filename: nombreFinal,
                 mimetype: mimeFinal,
+                uploadId: idUnico,
                 chunkIds: chunkIds // en vez de totalChunks + idUnico, mandamos los IDs exactos
             });
 
@@ -1091,13 +1098,12 @@
 
                 const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
 
-                if (urlWebHook) {
-
-                    if (driveId && driveId !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveId }) });
-
-                    if (driveIdMalla && driveIdMalla !== 'undefined') fetch(urlWebHook, { method: 'POST', body: JSON.stringify({ action: 'delete', fileId: driveIdMalla }) });
-
-                }
+                try {
+                    for (const fileId of [driveId, driveIdMalla].filter(id => id && id !== "undefined")) {
+                        const result = await llamarAppsScript(urlWebHook, {action: "delete", fileId});
+                        if (!result.success) throw new Error(result.error);
+                    }
+                } catch (error) { alert(error.message); return; }
 
                 detenerEscuchaTarea(slot, id);
                 delete estado[slot].coloresLocales[id];
@@ -1220,7 +1226,7 @@
                 let fuente = ov;
                 // Sin color local: bytes originales por Apps Script; respaldo: urlReal (NUNCA la miniatura) con q=100
                 if (!fuente) fuente = await descargarOriginalDrive(driveId, slot);
-                if (!fuente) fuente = "https://wsrv.nl/?url=" + encodeURIComponent(urlReal) + "&output=jpg&q=100";
+                if (!fuente) fuente = urlReal;
 
                 const response = await fetch(fuente);
 
@@ -1495,6 +1501,7 @@
 
                         const datos = snap.val();
 
+                        if (datos.sesion_activa) { alert("El slot está ocupado. Verificá la sesión en Kaggle."); return; }
                         const haceMs = datos.actualizado ? (Date.now() - datos.actualizado) : Infinity;
 
                         const activo = haceMs < UMBRAL_INACTIVIDAD_MS && ['escuchando', 'procesando', 'iniciando'].includes(datos.estado);
@@ -1569,33 +1576,16 @@
 
             try {
 
-                // Reseteamos el documento ANTES de avisarle a Kaggle: así nunca
+                estado[slot].esperandoArranque = Date.now();
+                // Conservamos el estado de Firebase hasta el aviso del notebook.
 
                 // se ve el estado "listo" de una sesión vieja mientras el
 
                 // notebook nuevo todavía está instalando cosas.
 
-                estado[slot].ultimoServidorMillis = Date.now();
-
-                await set(refServidor, {
-
-                    estado: 'iniciando',
-
-                    progreso: 2,
-
-                    mensaje: '🚀 Orden enviada. Esperando que Kaggle arranque el notebook (puede tardar 1-3 min en llegar la primera señal real)...',
-
-                    tarea_actual: null,
-
-                    sesion: null,
-
-                    actualizado: serverTimestamp()
-
-                });
-
-
-
-                fetch(urlWebHook + "?tipo=cpu&slot=" + slot, { mode: 'no-cors' });
+                const respuesta = await llamarAppsScript(urlWebHook, { action: "start", tipo: "cpu", slot: String(slot) }, 1);
+                if (!respuesta.success) throw new Error(respuesta.error);
+                if (textoCarga.innerText.includes("Enviando")) textoCarga.innerText = "Kaggle aceptó. Esperando el primer aviso del notebook…";
 
                 // La escucha del progreso ya está activa desde que se abrió la pestaña
 
@@ -1603,7 +1593,8 @@
 
             } catch (error) {
 
-                textoCarga.innerText = "❌ Error de conexión";
+                estado[slot].esperandoArranque = null;
+                textoCarga.innerText = "Encendido sin confirmar: " + error.message;
 
                 btnArrancar.disabled = false;
 
@@ -1648,6 +1639,26 @@
             return m ? `https://drive.google.com/thumbnail?id=${m[1]}&sz=w480` : u;
         }
 
+        const vistas = new Map();
+        async function cargarVistasPrivadas(contenedor, slot) {
+            for (const img of contenedor.querySelectorAll("img[data-drive]")) {
+                const id = img.dataset.drive;
+                if (!vistas.has(id)) {
+                    const carga = descargarOriginalDrive(id, slot).then(async data => {
+                        if (!data) throw new Error("Imagen privada pendiente");
+                        return URL.createObjectURL(await (await fetch(data)).blob());
+                    });
+                    vistas.set(id, carga);
+                }
+                try {
+                    const url = await vistas.get(id);
+                    img.src = url;
+                    img.parentElement.closest("a").href = url;
+                    img.parentElement.closest("a").download = id;
+                } catch { vistas.delete(id); }
+            }
+        }
+
         function renderizarHistorial(slot) {
 
             const contenedor = el("contenedorHistorial", slot);
@@ -1681,15 +1692,15 @@
                             <div class="grid grid-cols-2 gap-2 mt-2">
                                 <a href="${hrefLimpia}" ${attrDescarga}>
                                     <div class="text-[10px] text-center text-gray-400 mb-1">Corte Original${ov.limpia ? ' 🎨' : ''}</div>
-                                    <img src="${srcLimpia}" loading="lazy" decoding="async" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
+                                    <img ${tarea.driveId && !ov.limpia ? `data-drive="${tarea.driveId}"` : `src="${srcLimpia}"`} loading="lazy" decoding="async" class="w-full h-32 object-cover rounded border border-gray-600 hover:opacity-80 transition">
                                 </a>
                                 <a href="${hrefMalla}" ${attrDescargaM}>
                                     <div class="text-[10px] text-center text-gray-400 mb-1">Con Malla${ov.malla ? ' 🎨' : ''}</div>
-                                    <img src="${srcMalla}" loading="lazy" decoding="async" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
+                                    <img ${tarea.driveIdMalla && !ov.malla ? `data-drive="${tarea.driveIdMalla}"` : `src="${srcMalla}"`} loading="lazy" decoding="async" class="w-full h-32 object-cover rounded border-2 border-blue-500 hover:opacity-80 transition">
                                 </a>
                             </div>`;
                         } else {
-                            htmlImg = `<a href="${hrefLimpia}" ${attrDescarga}><img src="${srcLimpia}" loading="lazy" decoding="async" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
+                            htmlImg = `<a href="${hrefLimpia}" ${attrDescarga}><img ${tarea.driveId && !ov.limpia ? `data-drive="${tarea.driveId}"` : `src="${srcLimpia}"`} loading="lazy" decoding="async" class="w-full h-40 object-cover rounded mt-2 border-2 border-green-500 hover:opacity-80 transition"></a>`;
                         }
                         botonesAccion = `
 
@@ -1705,7 +1716,7 @@
 
                 } else {
 
-                    htmlImg = `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">Procesando...</span></div>`;
+                    htmlImg = `<div class="w-full h-40 bg-gray-700 rounded mt-2 flex items-center justify-center border-2 border-dashed border-gray-500"><span class="text-xs text-gray-400">${tarea.estado === 'error' ? 'Falló la tarea' : 'Procesando…'}</span></div>`;
 
                     botonesAccion = `
 
@@ -1747,6 +1758,7 @@
 
             });
             contenedor.innerHTML = tarjetas.join("") || '<p class="text-sm text-gray-400 text-center py-8">No hay trabajos en el historial local.</p>';
+            cargarVistasPrivadas(contenedor, slot);
             actualizarTotalHistorialLocal();
 
         }
@@ -2012,9 +2024,8 @@
             const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
             if (!driveId || driveId === "undefined" || !urlWebHook) return null;
             try {
-                const r = await fetch(`${urlWebHook}?action=download&fileId=${encodeURIComponent(driveId)}`);
-                const j = await r.json();
-                if (j && j.success && j.base64) return `data:image/jpeg;base64,${j.base64}`;
+                const j = await llamarAppsScript(urlWebHook, {action: "download", fileId: driveId});
+                if (j && j.success && j.base64) return `data:${j.mimetype};base64,${j.base64}`;
             } catch (e) { console.warn("Descarga directa por Apps Script falló, usando respaldo:", e); }
             return null;
         }
@@ -2023,7 +2034,7 @@
             let src = url;
             if (!url.startsWith("data:") && !url.startsWith("blob:")) {
                 src = await descargarOriginalDrive(driveId, slot);
-                if (!src) src = "https://wsrv.nl/?url=" + encodeURIComponent(url) + "&output=jpg&q=100";
+                if (!src) src = url;
             }
             const img = new Image();
             img.crossOrigin = "anonymous";
@@ -2197,6 +2208,7 @@
 
                 const datos = snap.val();
 
+                if (datos.sesion_activa) estado[slot].esperandoArranque = null;
                 estado[slot].ultimoServidorDatos = datos;
 
                 estado[slot].ultimoServidorMillis = datos.actualizado || Date.now();
@@ -2213,6 +2225,13 @@
 
             setInterval(() => {
 
+                if (estado[slot].esperandoArranque) {
+                    if (Date.now()-estado[slot].esperandoArranque < 300000) return;
+                    estado[slot].esperandoArranque = null;
+                    el("textoCarga",slot).innerText = "Sin señal del notebook. Revisá la ejecución en Kaggle.";
+                    el("btnPrender",slot).disabled = false;
+                    return;
+                }
                 if (estado[slot].ultimoServidorDatos) pintarEstadoServidor(slot, estado[slot].ultimoServidorDatos);
 
             }, 5000);
@@ -2823,14 +2842,14 @@
 
                 try {
 
-                    const metodoSubida = el("metodoSubida", slot).value;
-                    const subir = (b, nombre) => metodoSubida === "imgbb" ? subirAImgBB(b) : subirADrive(b, slot, nombre);
+
+                    const subir = (b, nombre) => subirADrive(b, slot, nombre);
                     let dataOrig = { url: "", fileId: "" };
                     if (!estado[slot].archivoModificado && estado[slot].imagenCargadaUrl) {
                         txtEstado.innerText = "♻️ Reutilizando enlace de imagen ya subida...";
                         dataOrig = { url: estado[slot].imagenCargadaUrl, fileId: estado[slot].imagenCargadaId || "" };
                     } else {
-                        txtEstado.innerText = metodoSubida === "imgbb" ? "🚀 Subiendo imagen a ImgBB..." : "☁️ Subiendo imagen a Drive...";
+                        txtEstado.innerText = "☁️ Subiendo imagen a Drive...";
                         dataOrig = await subir(archivo, archivo.name);
                     }
 
@@ -2921,9 +2940,7 @@
                     if (el("usarFondoCustom", slot).checked) {
                         txtEstado.innerText = "🎨 Subiendo fondo personalizado del estudio...";
                         const blobFondo = await obtenerBlobFondoCustom();
-                        const dataFondo = metodoSubida === "imgbb"
-                            ? await subirAImgBB(blobFondo)
-                            : await subirADrive(blobFondo, slot, "fondo_custom.jpg");
+                        const dataFondo = await subirADrive(blobFondo, slot, "fondo_custom.jpg");
                         urlFondoCustom = dataFondo.url;
                         idFondoCustom = dataFondo.fileId || "";
                         if (!urlFondoCustom) throw new Error("No se pudo subir el fondo personalizado.");

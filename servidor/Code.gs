@@ -12,7 +12,9 @@ function autorizar(d) {
   });
   const user = (JSON.parse(response.getContentText()).users || [])[0];
   if (user && !user.disabled && user.localId === "kaggle-taller" && ["download","upload"].includes(d.action)) return;
-  if (!user || user.disabled || user.localId !== prop("OPERADOR_UID")) throw new Error("Cuenta sin permiso.");
+  if (!user || user.disabled) throw new Error("Acceso denegado.");
+  const acceso = UrlFetchApp.fetch("https://botartes-default-rtdb.firebaseio.com/accesoTaller.json?auth="+encodeURIComponent(d.idToken), {muteHttpExceptions:true});
+  if (acceso.getResponseCode() !== 200) throw new Error("Este navegador necesita el enlace vigente del taller.");
 }
 function archivoDelTaller(folder, id) {
   const file = DriveApp.getFileById(id);
@@ -35,7 +37,7 @@ function doPost(e) {
         const key = "arranque_" + d.slot;
         const cache = CacheService.getScriptCache();
         const respuesta = UrlFetchApp.fetch("https://botartes-default-rtdb.firebaseio.com/servidores/slot_" + d.slot + "/sesion_activa.json?auth=" + encodeURIComponent(d.idToken), {muteHttpExceptions:true});
-        if (respuesta.getResponseCode() !== 200) throw new Error("Firebase denegó la consulta del slot. Verificá el UID y las reglas.");
+        if (respuesta.getResponseCode() !== 200) throw new Error("Firebase denegó la consulta del slot. Verificá el acceso del navegador y las reglas.");
         if (JSON.parse(respuesta.getContentText())) throw new Error("El slot ya tiene una sesión.");
         if (cache.get(key)) throw new Error("Ya se envió un arranque para ese slot en los últimos dos minutos.");
         const ack = triggerKaggleImageServer(d.tipo, String(d.slot));
@@ -199,4 +201,13 @@ function ensamblar(folder, parts, name, mime) {
   });
   if (!fileId) throw new Error("Drive no confirmó el archivo final.");
   return DriveApp.getFileById(fileId);
+}
+
+
+// Ejecutar desde el editor del propietario. Copiar ENLACE_TALLER desde las propiedades.
+function generarEnlaceTaller() {
+  const url = ScriptApp.getService().getUrl();
+  if (!url || !url.endsWith("/exec")) throw new Error("Primero publicá la aplicación web.");
+  const clave = Utilities.getUuid().replace(/-/g,"") + Utilities.getUuid().replace(/-/g,"");
+  PropertiesService.getScriptProperties().setProperty("ENLACE_TALLER", url + "#" + clave);
 }

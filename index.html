@@ -448,7 +448,6 @@
 
                         <h3 class="text-sm font-bold text-gray-400">Gestión del Servidor · Pestaña __SLOT__</h3>
 
-                        <button id="btnConfigurarURLs-__SLOT__" class="text-gray-400 hover:text-white text-xs underline transition">⚙️ Configurar URL</button>
 
                     </div>
 
@@ -554,28 +553,73 @@
 
         };
 
-        import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getAuth, browserLocalPersistence, setPersistence, signInAnonymously, signOut } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
         const app = initializeApp(firebaseConfig);
 
         const db = getDatabase(app); // Ahora usamos getDatabase
 
         const auth = getAuth(app);
-        await auth.authStateReady();
-        if (!auth.currentUser) {
-            const acceso = document.createElement("dialog");
-            acceso.innerHTML = '<button type="button">Ingresar al taller con Google</button><p></p>';
-            document.body.append(acceso);
+        const acceso = document.createElement("dialog");
+        acceso.innerHTML = '<form><label>Enlace privado del taller <input type="password" required autocomplete="off" placeholder="Pegá el enlace completo"></label> <button>Dar acceso a este navegador</button><p role="status"></p></form>';
+        document.body.append(acceso);
+        acceso.addEventListener("cancel", event => event.preventDefault());
+        const aviso = acceso.querySelector("p");
+        let endpoint = localStorage.getItem("tallerEndpoint");
+        let identidad;
+        try {
+            await setPersistence(auth, browserLocalPersistence);
+            await auth.authStateReady();
+            if (auth.currentUser && !auth.currentUser.isAnonymous) await signOut(auth);
+            identidad = auth.currentUser || (await signInAnonymously(auth)).user;
+        } catch (error) {
+            acceso.showModal();
+            aviso.textContent = "No se pudo conectar con Firebase. Revisá la conexión y que esté habilitado el acceso Anónimo.";
+            acceso.querySelector("button").disabled = true;
+            throw error;
+        }
+        const control = ref(db, "accesoTaller");
+        let habilitado = false;
+        if (endpoint) {
+            try { await get(control); habilitado = true; } catch { localStorage.removeItem("tallerEndpoint"); }
+        }
+        if (!habilitado) {
             acceso.showModal();
             await new Promise(resolve => {
-                acceso.querySelector("button").onclick = async () => {
-                    try { await signInWithPopup(auth, new GoogleAuthProvider()); acceso.close(); resolve(); }
-                    catch (error) { acceso.querySelector("p").textContent = error.message; }
+                acceso.querySelector("form").onsubmit = async event => {
+                    event.preventDefault();
+                    const input = acceso.querySelector("input");
+                    const enlace = input.value.trim();
+                    if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec#[a-f0-9]{64}$/.test(enlace)) {
+                        aviso.textContent = "Pegá el enlace completo, incluida la parte que sigue al signo #.";
+                        return;
+                    }
+                    try {
+                        await set(ref(db, "navegadoresTaller/" + identidad.uid), enlace);
+                        await get(control);
+                        endpoint = enlace.split("#")[0];
+                        localStorage.setItem("tallerEndpoint", endpoint);
+                        input.value = "";
+                        acceso.close();
+                        resolve();
+                    } catch { aviso.textContent = "Acceso denegado. Comprobá el enlace, las reglas y la conexión."; }
                 };
             });
         }
+        acceso.remove();
+        onValue(control, () => {}, () => {
+            localStorage.removeItem("tallerEndpoint");
+            location.reload();
+        });
         const salir = document.createElement("button");
-        salir.textContent = "Cerrar sesión · " + auth.currentUser.email;
-        salir.onclick = async () => { await signOut(auth); location.reload(); };
+        salir.textContent = "Quitar acceso a este navegador";
+        salir.onclick = async () => {
+            if (!confirm("¿Quitar el acceso? Para volver a entrar tendrás que pegar el enlace.")) return;
+            try { await remove(ref(db, "navegadoresTaller/" + identidad.uid)); }
+            catch { alert("No se pudo quitar el acceso. Revisá la conexión."); return; }
+            localStorage.removeItem("tallerEndpoint");
+            await signOut(auth);
+            location.reload();
+        };
         document.body.prepend(salir);
         // 📤 Sube un archivo/blob a Google Drive a través del Apps Script (doPost,
 
@@ -646,7 +690,7 @@
 
         async function subirADrive(archivoOBlob, slotActual, nombreArchivo) {
 
-            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slotActual}`);
+            const urlWebHook = endpoint;
 
             if (!urlWebHook) throw new Error("No hay URL de Apps Script guardada para este slot.");
 
@@ -1096,7 +1140,7 @@
 
             if (confirm("¿Estás seguro de que quieres ocultar este trabajo y eliminar permanentemente las imágenes de tu Google Drive?")) {
 
-                const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+                const urlWebHook = endpoint;
 
                 try {
                     for (const fileId of [driveId, driveIdMalla].filter(id => id && id !== "undefined")) {
@@ -1558,11 +1602,11 @@
 
 
 
-            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+            const urlWebHook = endpoint;
 
             if (!urlWebHook) {
 
-                alert(`Configura la URL de Apps Script de la Pestaña ${slot} primero en '⚙️ Configurar URL'.`);
+                alert(`Volvé a abrir el panel y pegá el enlace del taller.`);
 
                 btnArrancar.disabled = false;
 
@@ -2021,7 +2065,7 @@
         }
 
         async function descargarOriginalDrive(driveId, slot) {
-            const urlWebHook = localStorage.getItem(`url_apps_script_cpu_${slot}`);
+            const urlWebHook = endpoint;
             if (!driveId || driveId === "undefined" || !urlWebHook) return null;
             try {
                 const j = await llamarAppsScript(urlWebHook, {action: "download", fileId: driveId});
@@ -3046,20 +3090,6 @@
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
                 }
-
-            });
-
-
-
-            el("btnConfigurarURLs", slot).addEventListener("click", () => {
-
-                const actualCPU = localStorage.getItem(`url_apps_script_cpu_${slot}`) || "";
-
-                const nuevaCPU = prompt(`Pega la URL de Apps Script (puede ser LA MISMA para las 5 pestañas, el sistema envía el número de slot automáticamente):`, actualCPU);
-
-                if (nuevaCPU !== null) localStorage.setItem(`url_apps_script_cpu_${slot}`, nuevaCPU.trim());
-
-                alert(`✅ URL guardada de forma segura en este navegador para la Pestaña ${slot}.`);
 
             });
 

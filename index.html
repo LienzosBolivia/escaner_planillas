@@ -573,7 +573,8 @@
             identidad = auth.currentUser || (await signInAnonymously(auth)).user;
         } catch (error) {
             acceso.showModal();
-            aviso.textContent = "No se pudo conectar con Firebase. Revisá la conexión y que esté habilitado el acceso Anónimo.";
+            const codigo = typeof error.code === "string" && /^auth\/[a-z-]+$/.test(error.code) ? error.code : "sin código de autenticación";
+            aviso.textContent = "No se pudo iniciar la sesión del navegador en Firebase (" + codigo + "). Revisá Authentication → Método de acceso → Anónimo y recargá la página.";
             acceso.querySelector("button").disabled = true;
             throw error;
         }

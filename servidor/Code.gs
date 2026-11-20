@@ -206,8 +206,11 @@ function ensamblar(folder, parts, name, mime) {
 
 // Ejecutar desde el editor del propietario. Copiar ENLACE_TALLER desde las propiedades.
 function generarEnlaceTaller() {
-  const url = ScriptApp.getService().getUrl();
-  if (!url || !url.endsWith("/exec")) throw new Error("Primero publicá la aplicación web.");
+  const propiedades = PropertiesService.getScriptProperties();
+  const url = (propiedades.getProperty("WEB_APP_URL") || ScriptApp.getService().getUrl() || "").trim();
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) {
+    throw new Error("Copiá la URL /exec de Administrar implementaciones y guardala en la propiedad WEB_APP_URL.");
+  }
   const clave = Utilities.getUuid().replace(/-/g,"") + Utilities.getUuid().replace(/-/g,"");
-  PropertiesService.getScriptProperties().setProperty("ENLACE_TALLER", url + "#" + clave);
+  propiedades.setProperty("ENLACE_TALLER", url + "#" + clave);
 }

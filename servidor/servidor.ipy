@@ -1,5 +1,5 @@
 import os, time, uuid, requests, sys, atexit, glob, subprocess, shutil
-print("🚀 1. PREPARANDO EL ENTORNO (VERSIÓN ULTRA-LIGERA CPU)...")
+SOLO_EXTENSION = globals().get("TIPO_SERVIDOR", "cpu") == "gpu"
 
 # =========================================================================
 # ⚠️ CONFIGURACIÓN DE ESTE SERVIDOR ⚠️
@@ -90,65 +90,202 @@ reportar('iniciando', 2, f"🚀 [SLOT {SLOT}] Notebook arrancó (sesión {SESION
 
 os.chdir('/kaggle/working/')
 
-reportar('iniciando', 6, f"📦 [SLOT {SLOT}] Instalando librerías de entorno (esto tarda ~20 segundos)...")
-# 1. Inyectamos las herramientas clásicas de compilación
-!pip install setuptools==69.5.1 wheel -q
-
-# 2. Instalamos la librería problemática obligando a la máquina a usar NUESTRAS herramientas
-!pip install basicsr -q --no-build-isolation
-
-# 3. Instalamos el resto del arsenal (agregando 'addict' que Python 3.13 omitió)
-!pip install addict facexlib lpips firebase-admin rembg onnxruntime pymatting modelscope tf-keras google-api-python-client -q
-
-reportar('iniciando', 15, f"🚀 [SLOT {SLOT}] Montando CodeFormer desde el disco local (dataset)...")
-if not os.path.exists('/kaggle/working/CodeFormer'):
-    # Buscamos la carpeta directamente (Kaggle ya la descomprimió)
-    carpetas_cf = glob.glob('/kaggle/input/**/CodeFormer_Offline', recursive=True)
-    if carpetas_cf:
-        subprocess.run(["cp", "-r", carpetas_cf[0], "/kaggle/working/CodeFormer"])
-        print("✅ [SISTEMA] CodeFormer copiado exitosamente desde el dataset.")
-    else:
-        # Respaldo en caso de emergencia
-        print("⚠️ [SLOT] Carpeta CodeFormer_Offline no encontrada, clonando desde GitHub...")
-        subprocess.run(["git", "clone", "https://github.com/sczhou/CodeFormer.git"])
-
-os.makedirs('/kaggle/working/CodeFormer/basicsr', exist_ok=True)
-with open('/kaggle/working/CodeFormer/basicsr/version.py', 'w') as f:
-    f.write("__version__ = '1.4.2'\n__gitsha__ = 'unknown'\n")
-
-os.makedirs('/kaggle/working/CodeFormer/weights/CodeFormer', exist_ok=True)
-os.makedirs('/kaggle/working/CodeFormer/weights/facelib', exist_ok=True)
-os.makedirs('/kaggle/working/CodeFormer/inputs', exist_ok=True)
-!ln -sf /kaggle/input/arsenal-modelos-ia-edicion/codeformer.pth /kaggle/working/CodeFormer/weights/CodeFormer/codeformer.pth
-
-!sed -i 's/half=True/half=False/g' /kaggle/working/CodeFormer/inference_codeformer.py
-
-reportar('iniciando', 35, f"✅ [SLOT {SLOT}] CodeFormer montado desde disco. Encendiendo servidor...")
-
-# =========================================================================
-# CELDA 2: EL QUIRÓFANO DE PRECISIÓN
-# =========================================================================
-
-import os, sys, glob, cv2, torch, numpy as np, subprocess, shutil, base64
+import base64
 from PIL import Image
-import io
-from torchvision.transforms.functional import normalize
-import torch.nn.functional as F
-from rembg import remove, new_session
-from safetensors.torch import load_file
-import firebase_admin
-from firebase_admin import credentials, db as rtdb
 
-print("📚 [SISTEMA] Iniciando servidor en proceso independiente...")
+if not SOLO_EXTENSION:
+    reportar('iniciando', 6, f"📦 [SLOT {SLOT}] Instalando librerías de entorno (esto tarda ~20 segundos)...")
+    # 1. Inyectamos las herramientas clásicas de compilación
+    !pip install setuptools==69.5.1 wheel -q
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
-print(f"⚙️ [SISTEMA] Ejecutando en modo de alta eficiencia: {device.upper()}")
+    # 2. Instalamos la librería problemática obligando a la máquina a usar NUESTRAS herramientas
+    !pip install basicsr -q --no-build-isolation
 
-# ==============================================================================
-# 0. CONEXIÓN A FIREBASE (firebase-admin, solo para leer/actualizar tareas_ia;
-#    el reporte de progreso de la barra sigue usando la función reportar() de arriba)
-# ==============================================================================
-reportar('iniciando', 40, f"🔥 [SLOT {SLOT}] Conectando credenciales de Firebase RTDB...")
+    # 3. Instalamos el resto del arsenal (agregando 'addict' que Python 3.13 omitió)
+    !pip install addict facexlib lpips firebase-admin rembg onnxruntime pymatting modelscope tf-keras google-api-python-client -q
+
+    reportar('iniciando', 15, f"🚀 [SLOT {SLOT}] Montando CodeFormer desde el disco local (dataset)...")
+    if not os.path.exists('/kaggle/working/CodeFormer'):
+        # Buscamos la carpeta directamente (Kaggle ya la descomprimió)
+        carpetas_cf = glob.glob('/kaggle/input/**/CodeFormer_Offline', recursive=True)
+        if carpetas_cf:
+            subprocess.run(["cp", "-r", carpetas_cf[0], "/kaggle/working/CodeFormer"])
+            print("✅ [SISTEMA] CodeFormer copiado exitosamente desde el dataset.")
+        else:
+            # Respaldo en caso de emergencia
+            print("⚠️ [SLOT] Carpeta CodeFormer_Offline no encontrada, clonando desde GitHub...")
+            subprocess.run(["git", "clone", "https://github.com/sczhou/CodeFormer.git"])
+
+    os.makedirs('/kaggle/working/CodeFormer/basicsr', exist_ok=True)
+    with open('/kaggle/working/CodeFormer/basicsr/version.py', 'w') as f:
+        f.write("__version__ = '1.4.2'\n__gitsha__ = 'unknown'\n")
+
+    os.makedirs('/kaggle/working/CodeFormer/weights/CodeFormer', exist_ok=True)
+    os.makedirs('/kaggle/working/CodeFormer/weights/facelib', exist_ok=True)
+    os.makedirs('/kaggle/working/CodeFormer/inputs', exist_ok=True)
+    !ln -sf /kaggle/input/arsenal-modelos-ia-edicion/codeformer.pth /kaggle/working/CodeFormer/weights/CodeFormer/codeformer.pth
+
+    !sed -i 's/half=True/half=False/g' /kaggle/working/CodeFormer/inference_codeformer.py
+
+    reportar('iniciando', 35, f"✅ [SLOT {SLOT}] CodeFormer montado desde disco. Encendiendo servidor...")
+
+    # =========================================================================
+    # CELDA 2: EL QUIRÓFANO DE PRECISIÓN
+    # =========================================================================
+
+    import os, sys, glob, cv2, torch, numpy as np, subprocess, shutil, base64
+    from PIL import Image
+    import io
+    from torchvision.transforms.functional import normalize
+    import torch.nn.functional as F
+    from rembg import remove, new_session
+    from safetensors.torch import load_file
+    import firebase_admin
+    from firebase_admin import credentials, db as rtdb
+
+    print("📚 [SISTEMA] Iniciando servidor en proceso independiente...")
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    print(f"⚙️ [SISTEMA] Ejecutando en modo de alta eficiencia: {device.upper()}")
+
+    # ==============================================================================
+    # 0. CONEXIÓN A FIREBASE (firebase-admin, solo para leer/actualizar tareas_ia;
+    #    el reporte de progreso de la barra sigue usando la función reportar() de arriba)
+    # ==============================================================================
+    reportar('iniciando', 40, f"🔥 [SLOT {SLOT}] Conectando credenciales de Firebase RTDB...")
+    # ==============================================================================
+    # 1. CARGA DE MODELOS LIGEROS
+    # ==============================================================================
+    reportar('iniciando', 55, f"🧠 [SLOT {SLOT}] Enlazando motores BiRefNet desde el disco local (sin internet)...")
+
+    os.makedirs('/root/.rembg/models/birefnet-general', exist_ok=True)
+    os.makedirs('/root/.rembg/models/birefnet-portrait', exist_ok=True)
+
+    rutas_general = glob.glob('/kaggle/input/**/birefnet-general.onnx', recursive=True)
+    rutas_portrait = glob.glob('/kaggle/input/**/birefnet-portrait.onnx', recursive=True)
+
+    if rutas_general:
+        subprocess.run(["ln", "-sf", rutas_general[0], "/root/.rembg/models/birefnet-general/birefnet-general.onnx"])
+    else:
+        print("⚠️ [SISTEMA] birefnet-general.onnx no encontrado en el dataset, rembg intentará descargarlo de internet.")
+
+    if rutas_portrait:
+        subprocess.run(["ln", "-sf", rutas_portrait[0], "/root/.rembg/models/birefnet-portrait/birefnet-portrait.onnx"])
+    else:
+        print("⚠️ [SISTEMA] birefnet-portrait.onnx no encontrado en el dataset, rembg intentará descargarlo de internet.")
+
+    import onnxruntime as ort
+    # ONNX Runtime sin arena de RAM gigante y con pocos hilos (evita el OOM -9 al correr BiRefNet en subprocesos fork)
+    def _sess_opts_bajo_consumo():
+        so = ort.SessionOptions()
+        so.enable_cpu_mem_arena = False
+        so.enable_mem_pattern = False
+        so.intra_op_num_threads = 2
+        so.inter_op_num_threads = 1
+        return so
+
+    def _nueva_sesion_ligera(nombre):
+        try:
+            return new_session(nombre, sess_opts=_sess_opts_bajo_consumo())
+        except TypeError:
+            print(f"⚠️ [SISTEMA] Esta versión de rembg no acepta sess_opts; {nombre} se carga con opciones por defecto.")
+            return new_session(nombre)
+
+    session_birefnet = _nueva_sesion_ligera("birefnet-general")
+    print("✅ [SISTEMA] BiRefNet cargado.")
+
+    # --- LaMa: modelo de inpainting profundo para "Quitar Logo IA" -------------
+    # A diferencia de cv2.inpaint (Telea/Navier-Stokes, que solo promedia
+    # píxeles vecinos y por eso deforma dedos, texturas de piel/ropa, etc.),
+    # LaMa es una red neuronal entrenada específicamente para rellenar huecos
+    # grandes entendiendo estructura, bordes y patrones. Se usa la implementación
+    # oficial vía ModelScope (misma librería que DDColor) en vez de la versión
+    # ONNX o de simple-lama-inpainting: ambas fallaban de forma permanente en
+    # este entorno de Kaggle (ONNX con un ShapeInferenceError de DFT en la capa
+    # de Fourier; simple-lama-inpainting con 'aten::empty_strided' porque su
+    # checkpoint trae instrucciones CUDA grabadas). Ver el docstring de
+    # ejecutar_quitar_logo() para el detalle completo.
+    # Segundo modelo, entrenado específicamente para retratos de personas.
+    # A veces detecta accesorios pegados al pelo/cabeza (vinchas, coronas,
+    # lentes) que el modelo "general" descarta como fondo. Usamos la UNIÓN
+    # de ambas máscaras para no perder esos objetos.
+    session_birefnet_portrait = _nueva_sesion_ligera("birefnet-portrait")
+    print("✅ [SISTEMA] BiRefNet (retrato) cargado.")
+
+    # --- Enlazando pesos pesados de ModelScope (DDColor y LaMa) desde disco local ---
+    reportar('iniciando', 75, f"🧠 [SLOT {SLOT}] Enlazando pesos de ModelScope desde disco local...")
+    os.makedirs('/root/.cache/modelscope/hub/damo/cv_ddcolor_image-colorization', exist_ok=True)
+    os.makedirs('/root/.cache/modelscope/hub/damo/cv_fft_inpainting_lama', exist_ok=True)
+
+    rutas_ddcolor = glob.glob('/kaggle/input/**/ddcolor_pytorch_model.pt', recursive=True)
+    rutas_lama = glob.glob('/kaggle/input/**/lama_pytorch_model.pt', recursive=True)
+
+    if rutas_ddcolor:
+        subprocess.run(["ln", "-sf", rutas_ddcolor[0], "/root/.cache/modelscope/hub/damo/cv_ddcolor_image-colorization/pytorch_model.pt"])
+        print("✅ [SISTEMA] DDColor vinculado desde disco local.")
+        
+    if rutas_lama:
+        subprocess.run(["ln", "-sf", rutas_lama[0], "/root/.cache/modelscope/hub/damo/cv_fft_inpainting_lama/pytorch_model.pt"])
+        print("✅ [SISTEMA] LaMa vinculado desde disco local.")
+
+    reportar('iniciando', 80, f"🎨 [SLOT {SLOT}] Cargando Genio del Color (DDColor)...")
+    from modelscope.pipelines import pipeline
+    from modelscope.utils.constant import Tasks
+
+    # Descarga los pesos (~300MB) la primera vez y los deja listos en RAM
+    colorizador_ddcolor = pipeline(Tasks.image_colorization, model='damo/cv_ddcolor_image-colorization')
+    print("✅ [SISTEMA] DDColor cargado en memoria.")
+
+    DIRECTORIO_MODELO_BRIA = '/kaggle/working/modelo_bria'
+    os.makedirs(DIRECTORIO_MODELO_BRIA, exist_ok=True)
+
+    # --- Carga de BRIA a máxima velocidad (copia local desde dataset) ---
+    # Antes se descargaba por HTTP desde Hugging Face en cada arranque; ahora
+    # se copia directo del dataset "arsenal-modelos-ia-edicion" ya adjunto al
+    # notebook, así el arranque tarda segundos en vez de minutos y no depende
+    # de que Hugging Face esté disponible.
+    #
+    # Usamos glob recursivo en vez de una ruta fija porque Kaggle a veces
+    # anida el contenido bajo una subcarpeta con el nombre original al crear
+    # una nueva versión del dataset (ej. .../arsenal-modelos-ia-edicion/
+    # actualizacion_dataset/briarmbg.py en vez de .../arsenal-modelos-ia-edicion/
+    # briarmbg.py), así que buscamos el archivo esté donde esté.
+    reportar('iniciando', 45, f"⬇️ [SLOT {SLOT}] Copiando modelo BRIA RMBG-1.4 desde dataset local...")
+
+    rutas_bria = glob.glob('/kaggle/input/**/briarmbg.py', recursive=True)
+
+    if rutas_bria:
+        carpeta_base_bria = os.path.dirname(rutas_bria[0])
+        shutil.copy(os.path.join(carpeta_base_bria, "briarmbg.py"), os.path.join(DIRECTORIO_MODELO_BRIA, "briarmbg.py"))
+        shutil.copy(os.path.join(carpeta_base_bria, "MyConfig.py"), os.path.join(DIRECTORIO_MODELO_BRIA, "MyConfig.py"))
+        shutil.copy(os.path.join(carpeta_base_bria, "model.safetensors"), os.path.join(DIRECTORIO_MODELO_BRIA, "model.safetensors"))
+        print(f"✅ [SISTEMA] Modelos BRIA encontrados y copiados desde: {carpeta_base_bria}")
+    else:
+        print("⚠️ [SISTEMA] Archivos de BRIA no encontrados (Kaggle aún no refresca el dataset). Se detendrá el proceso.")
+
+    ruta_script = os.path.join(DIRECTORIO_MODELO_BRIA, "briarmbg.py")
+    if os.path.exists(ruta_script):
+        with open(ruta_script, 'r') as f:
+            codigo = f.read()
+        if "from .MyConfig" in codigo:
+            with open(ruta_script, 'w') as f:
+                f.write(codigo.replace("from .MyConfig", "from MyConfig"))
+
+    if DIRECTORIO_MODELO_BRIA not in sys.path:
+        sys.path.append(DIRECTORIO_MODELO_BRIA)
+
+    reportar('iniciando', 70, f"🧠 [SLOT {SLOT}] Cargando pesos del modelo en memoria ({device.upper()})...")
+    from briarmbg import BriaRMBG
+    net_bria = BriaRMBG()
+    net_bria.load_state_dict(load_file(os.path.join(DIRECTORIO_MODELO_BRIA, "model.safetensors"), device='cpu'))
+    net_bria.to(device)
+    net_bria.eval()
+else:
+    import torch
+    if not torch.cuda.is_available():
+        reportar("error", 0, "Kaggle arrancó sin GPU asignada.")
+        sys.exit(1)
+
 class ProcesoInterrumpidoError(Exception):
     pass
 
@@ -167,133 +304,89 @@ def chequear_interrupcion(forzar=False):
         pass
     return False
 
-# ==============================================================================
-# 1. CARGA DE MODELOS LIGEROS
-# ==============================================================================
-reportar('iniciando', 55, f"🧠 [SLOT {SLOT}] Enlazando motores BiRefNet desde el disco local (sin internet)...")
+import ctypes, gc
 
-os.makedirs('/root/.rembg/models/birefnet-general', exist_ok=True)
-os.makedirs('/root/.rembg/models/birefnet-portrait', exist_ok=True)
-
-rutas_general = glob.glob('/kaggle/input/**/birefnet-general.onnx', recursive=True)
-rutas_portrait = glob.glob('/kaggle/input/**/birefnet-portrait.onnx', recursive=True)
-
-if rutas_general:
-    subprocess.run(["ln", "-sf", rutas_general[0], "/root/.rembg/models/birefnet-general/birefnet-general.onnx"])
-else:
-    print("⚠️ [SISTEMA] birefnet-general.onnx no encontrado en el dataset, rembg intentará descargarlo de internet.")
-
-if rutas_portrait:
-    subprocess.run(["ln", "-sf", rutas_portrait[0], "/root/.rembg/models/birefnet-portrait/birefnet-portrait.onnx"])
-else:
-    print("⚠️ [SISTEMA] birefnet-portrait.onnx no encontrado en el dataset, rembg intentará descargarlo de internet.")
-
-import onnxruntime as ort
-# ONNX Runtime sin arena de RAM gigante y con pocos hilos (evita el OOM -9 al correr BiRefNet en subprocesos fork)
-def _sess_opts_bajo_consumo():
-    so = ort.SessionOptions()
-    so.enable_cpu_mem_arena = False
-    so.enable_mem_pattern = False
-    so.intra_op_num_threads = 2
-    so.inter_op_num_threads = 1
-    return so
-
-def _nueva_sesion_ligera(nombre):
+def purgar_memoria_profunda():
+    """Devuelve al SO la RAM que las librerías C/C++ (ONNX, SciPy, OpenCV) dejan retenida."""
+    gc.collect()
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
     try:
-        return new_session(nombre, sess_opts=_sess_opts_bajo_consumo())
-    except TypeError:
-        print(f"⚠️ [SISTEMA] Esta versión de rembg no acepta sess_opts; {nombre} se carga con opciones por defecto.")
-        return new_session(nombre)
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+        print("🧹 [SISTEMA] RAM residual purgada y devuelta al servidor.")
+    except Exception:
+        pass
 
-session_birefnet = _nueva_sesion_ligera("birefnet-general")
-print("✅ [SISTEMA] BiRefNet cargado.")
+_pipeline_extension = None
 
-# --- LaMa: modelo de inpainting profundo para "Quitar Logo IA" -------------
-# A diferencia de cv2.inpaint (Telea/Navier-Stokes, que solo promedia
-# píxeles vecinos y por eso deforma dedos, texturas de piel/ropa, etc.),
-# LaMa es una red neuronal entrenada específicamente para rellenar huecos
-# grandes entendiendo estructura, bordes y patrones. Se usa la implementación
-# oficial vía ModelScope (misma librería que DDColor) en vez de la versión
-# ONNX o de simple-lama-inpainting: ambas fallaban de forma permanente en
-# este entorno de Kaggle (ONNX con un ShapeInferenceError de DFT en la capa
-# de Fourier; simple-lama-inpainting con 'aten::empty_strided' porque su
-# checkpoint trae instrucciones CUDA grabadas). Ver el docstring de
-# ejecutar_quitar_logo() para el detalle completo.
-# Segundo modelo, entrenado específicamente para retratos de personas.
-# A veces detecta accesorios pegados al pelo/cabeza (vinchas, coronas,
-# lentes) que el modelo "general" descarta como fondo. Usamos la UNIÓN
-# de ambas máscaras para no perder esos objetos.
-session_birefnet_portrait = _nueva_sesion_ligera("birefnet-portrait")
-print("✅ [SISTEMA] BiRefNet (retrato) cargado.")
+def generar_extension(base, mascara):
+    global _pipeline_extension
+    usar_gpu = torch.cuda.is_available()
+    if SOLO_EXTENSION and not usar_gpu:
+        raise RuntimeError("Kaggle arrancó sin GPU. Revisá la asignación de acelerador.")
+    resolucion, pasos = (768, 25) if usar_gpu else (384, 12)
+    if _pipeline_extension is None:
+        inicio_carga = time.monotonic()
+        try:
+            from diffusers import StableDiffusionInpaintPipeline
+        except ImportError:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
+                                   "diffusers>=0.32,<0.37", "transformers>=4.44,<5", "accelerate"])
+            from diffusers import StableDiffusionInpaintPipeline
+        _pipeline_extension = StableDiffusionInpaintPipeline.from_pretrained(
+            "stable-diffusion-v1-5/stable-diffusion-inpainting", torch_dtype=torch.float16 if usar_gpu else torch.float32
+        )
+        if usar_gpu:
+            _pipeline_extension.enable_model_cpu_offload()
+        print(f"[EXTENSIÓN] Carga del modelo: {time.monotonic() - inicio_carga:.1f} s")
+    ancho, alto = base.size
+    escala = min(1, resolucion / max(ancho, alto))
+    tamano = tuple(max(64, round(lado * escala / 8) * 8) for lado in base.size)
+    inicio = time.monotonic()
+    with torch.inference_mode():
+        resultado = _pipeline_extension(
+            prompt="Continue the photograph naturally into the empty border. Match the visible person, clothing, pose, lighting, and background. Realistic anatomy.",
+            negative_prompt="extra people, extra limbs, duplicate body, distorted anatomy, lettering",
+            image=base.resize(tamano, Image.Resampling.LANCZOS),
+            mask_image=mascara.resize(tamano, Image.Resampling.NEAREST),
+            width=tamano[0], height=tamano[1], num_inference_steps=pasos, guidance_scale=6.0,
+        )
+    print(f"[EXTENSIÓN] {'GPU' if usar_gpu else 'CPU'} · {tamano} · {pasos} pasos · {time.monotonic() - inicio:.1f} s")
+    if resultado.nsfw_content_detected and resultado.nsfw_content_detected[0]:
+        raise RuntimeError("El modelo no entregó una extensión para esta imagen.")
+    return resultado.images[0].resize(base.size, Image.Resampling.LANCZOS)
 
-# --- Enlazando pesos pesados de ModelScope (DDColor y LaMa) desde disco local ---
-reportar('iniciando', 75, f"🧠 [SLOT {SLOT}] Enlazando pesos de ModelScope desde disco local...")
-os.makedirs('/root/.cache/modelscope/hub/damo/cv_ddcolor_image-colorization', exist_ok=True)
-os.makedirs('/root/.cache/modelscope/hub/damo/cv_fft_inpainting_lama', exist_ok=True)
+def extender_original(ruta, salida, x, y, ancho, alto):
+    from PIL import ImageOps
+    with Image.open(ruta) as origen:
+        original = ImageOps.exif_transpose(origen)
+        if original.mode not in ("RGB", "RGBA"):
+            original = original.convert("RGB")
+        perfil = original.info.get("icc_profile")
+        dpi = original.info.get("dpi")
+    izquierda, arriba = -x, -y
+    derecha, abajo = izquierda + original.width, arriba + original.height
+    if izquierda < 0 or arriba < 0 or derecha > ancho or abajo > alto:
+        raise ValueError("En Recorte Manual, incluí toda la foto y extendé el marco fuera de sus bordes.")
+    if (ancho, alto) == original.size:
+        raise ValueError("Extendé el marco de recorte fuera de la foto para crear espacio nuevo.")
+    if ancho * alto > 32_000_000 or max(ancho, alto) > 12000:
+        raise ValueError("El lienzo supera el tamaño admitido para extender con IA.")
+    relleno = original.convert("RGB").resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
+    base = Image.new("RGB", (ancho, alto), relleno)
+    base.paste(original.convert("RGB"), (izquierda, arriba))
+    mascara = Image.new("L", base.size, 255)
+    mascara.paste(0, (izquierda, arriba, derecha, abajo))
+    generado = generar_extension(base, mascara).convert(original.mode)
+    generado.paste(original, (izquierda, arriba))
+    opciones = {k: v for k, v in {"icc_profile": perfil, "dpi": dpi}.items() if v}
+    generado.save(salida, format="PNG", **opciones)
+    with Image.open(salida) as final:
+        if final.crop((izquierda, arriba, derecha, abajo)).tobytes() != original.tobytes():
+            raise RuntimeError("La verificación de los píxeles originales falló.")
+    return salida
 
-rutas_ddcolor = glob.glob('/kaggle/input/**/ddcolor_pytorch_model.pt', recursive=True)
-rutas_lama = glob.glob('/kaggle/input/**/lama_pytorch_model.pt', recursive=True)
-
-if rutas_ddcolor:
-    subprocess.run(["ln", "-sf", rutas_ddcolor[0], "/root/.cache/modelscope/hub/damo/cv_ddcolor_image-colorization/pytorch_model.pt"])
-    print("✅ [SISTEMA] DDColor vinculado desde disco local.")
-    
-if rutas_lama:
-    subprocess.run(["ln", "-sf", rutas_lama[0], "/root/.cache/modelscope/hub/damo/cv_fft_inpainting_lama/pytorch_model.pt"])
-    print("✅ [SISTEMA] LaMa vinculado desde disco local.")
-
-reportar('iniciando', 80, f"🎨 [SLOT {SLOT}] Cargando Genio del Color (DDColor)...")
-from modelscope.pipelines import pipeline
-from modelscope.utils.constant import Tasks
-
-# Descarga los pesos (~300MB) la primera vez y los deja listos en RAM
-colorizador_ddcolor = pipeline(Tasks.image_colorization, model='damo/cv_ddcolor_image-colorization')
-print("✅ [SISTEMA] DDColor cargado en memoria.")
-
-DIRECTORIO_MODELO_BRIA = '/kaggle/working/modelo_bria'
-os.makedirs(DIRECTORIO_MODELO_BRIA, exist_ok=True)
-
-# --- Carga de BRIA a máxima velocidad (copia local desde dataset) ---
-# Antes se descargaba por HTTP desde Hugging Face en cada arranque; ahora
-# se copia directo del dataset "arsenal-modelos-ia-edicion" ya adjunto al
-# notebook, así el arranque tarda segundos en vez de minutos y no depende
-# de que Hugging Face esté disponible.
-#
-# Usamos glob recursivo en vez de una ruta fija porque Kaggle a veces
-# anida el contenido bajo una subcarpeta con el nombre original al crear
-# una nueva versión del dataset (ej. .../arsenal-modelos-ia-edicion/
-# actualizacion_dataset/briarmbg.py en vez de .../arsenal-modelos-ia-edicion/
-# briarmbg.py), así que buscamos el archivo esté donde esté.
-reportar('iniciando', 45, f"⬇️ [SLOT {SLOT}] Copiando modelo BRIA RMBG-1.4 desde dataset local...")
-
-rutas_bria = glob.glob('/kaggle/input/**/briarmbg.py', recursive=True)
-
-if rutas_bria:
-    carpeta_base_bria = os.path.dirname(rutas_bria[0])
-    shutil.copy(os.path.join(carpeta_base_bria, "briarmbg.py"), os.path.join(DIRECTORIO_MODELO_BRIA, "briarmbg.py"))
-    shutil.copy(os.path.join(carpeta_base_bria, "MyConfig.py"), os.path.join(DIRECTORIO_MODELO_BRIA, "MyConfig.py"))
-    shutil.copy(os.path.join(carpeta_base_bria, "model.safetensors"), os.path.join(DIRECTORIO_MODELO_BRIA, "model.safetensors"))
-    print(f"✅ [SISTEMA] Modelos BRIA encontrados y copiados desde: {carpeta_base_bria}")
-else:
-    print("⚠️ [SISTEMA] Archivos de BRIA no encontrados (Kaggle aún no refresca el dataset). Se detendrá el proceso.")
-
-ruta_script = os.path.join(DIRECTORIO_MODELO_BRIA, "briarmbg.py")
-if os.path.exists(ruta_script):
-    with open(ruta_script, 'r') as f:
-        codigo = f.read()
-    if "from .MyConfig" in codigo:
-        with open(ruta_script, 'w') as f:
-            f.write(codigo.replace("from .MyConfig", "from MyConfig"))
-
-if DIRECTORIO_MODELO_BRIA not in sys.path:
-    sys.path.append(DIRECTORIO_MODELO_BRIA)
-
-reportar('iniciando', 70, f"🧠 [SLOT {SLOT}] Cargando pesos del modelo en memoria ({device.upper()})...")
-from briarmbg import BriaRMBG
-net_bria = BriaRMBG()
-net_bria.load_state_dict(load_file(os.path.join(DIRECTORIO_MODELO_BRIA, "model.safetensors"), device='cpu'))
-net_bria.to(device)
-net_bria.eval()
 
 
 # ==============================================================================
@@ -1075,68 +1168,6 @@ def _expansion_matematica_pura(img_bgr, pad_top, pad_bottom, pad_left, pad_right
 
     return canvas_final
 
-_pipeline_extension = None
-
-def generar_extension(base, mascara):
-    global _pipeline_extension
-    if not torch.cuda.is_available():
-        raise RuntimeError("Para extender con IA, encendé un slot con GPU.")
-    if _pipeline_extension is None:
-        try:
-            from diffusers import StableDiffusionInpaintPipeline
-        except ImportError:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
-                                   "diffusers>=0.32,<0.37", "transformers>=4.44,<5", "accelerate"])
-            from diffusers import StableDiffusionInpaintPipeline
-        _pipeline_extension = StableDiffusionInpaintPipeline.from_pretrained(
-            "stable-diffusion-v1-5/stable-diffusion-inpainting", torch_dtype=torch.float16
-        )
-        _pipeline_extension.enable_model_cpu_offload()
-    ancho, alto = base.size
-    escala = min(1, 768 / max(ancho, alto))
-    tamano = tuple(max(64, round(lado * escala / 8) * 8) for lado in base.size)
-    with torch.inference_mode():
-        resultado = _pipeline_extension(
-            prompt="Continue the photograph naturally into the empty border. Match the visible person, clothing, pose, lighting, and background. Realistic anatomy.",
-            negative_prompt="extra people, extra limbs, duplicate body, distorted anatomy, lettering",
-            image=base.resize(tamano, Image.Resampling.LANCZOS),
-            mask_image=mascara.resize(tamano, Image.Resampling.NEAREST),
-            width=tamano[0], height=tamano[1], num_inference_steps=25, guidance_scale=6.0,
-        )
-    if resultado.nsfw_content_detected and resultado.nsfw_content_detected[0]:
-        raise RuntimeError("El modelo no entregó una extensión para esta imagen.")
-    return resultado.images[0].resize(base.size, Image.Resampling.LANCZOS)
-
-def extender_original(ruta, salida, x, y, ancho, alto):
-    from PIL import ImageOps
-    with Image.open(ruta) as origen:
-        original = ImageOps.exif_transpose(origen)
-        if original.mode not in ("RGB", "RGBA"):
-            original = original.convert("RGB")
-        perfil = original.info.get("icc_profile")
-        dpi = original.info.get("dpi")
-    izquierda, arriba = -x, -y
-    derecha, abajo = izquierda + original.width, arriba + original.height
-    if izquierda < 0 or arriba < 0 or derecha > ancho or abajo > alto:
-        raise ValueError("En Recorte Manual, incluí toda la foto y extendé el marco fuera de sus bordes.")
-    if (ancho, alto) == original.size:
-        raise ValueError("Extendé el marco de recorte fuera de la foto para crear espacio nuevo.")
-    if ancho * alto > 32_000_000 or max(ancho, alto) > 12000:
-        raise ValueError("El lienzo supera el tamaño admitido para extender con IA.")
-    relleno = original.convert("RGB").resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
-    base = Image.new("RGB", (ancho, alto), relleno)
-    base.paste(original.convert("RGB"), (izquierda, arriba))
-    mascara = Image.new("L", base.size, 255)
-    mascara.paste(0, (izquierda, arriba, derecha, abajo))
-    generado = generar_extension(base, mascara).convert(original.mode)
-    generado.paste(original, (izquierda, arriba))
-    opciones = {k: v for k, v in {"icc_profile": perfil, "dpi": dpi}.items() if v}
-    generado.save(salida, format="PNG", **opciones)
-    with Image.open(salida) as final:
-        if final.crop((izquierda, arriba, derecha, abajo)).tobytes() != original.tobytes():
-            raise RuntimeError("La verificación de los píxeles originales falló.")
-    return salida
-
 def ejecutar_recorte_manual_expandible(ruta_input, x, y, ancho_cuadro, alto_cuadro, usar_ia_relleno=False):
     if not ruta_input: return None
     print(f"✂️ [RECORTE MANUAL] Expansión matemática activa - x:{x}, y:{y}, w:{ancho_cuadro}, h:{alto_cuadro}")
@@ -1558,20 +1589,6 @@ def ejecutar_quitar_logo(ruta_input, ruta_mascara):
     cv2.imwrite(ruta_salida, final_bgr)
     print(f"✅ [LOGO] Guardado en {ruta_salida}")
     return ruta_salida
-
-import ctypes, gc
-
-def purgar_memoria_profunda():
-    """Devuelve al SO la RAM que las librerías C/C++ (ONNX, SciPy, OpenCV) dejan retenida."""
-    gc.collect()
-    gc.collect()
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    try:
-        ctypes.CDLL("libc.so.6").malloc_trim(0)
-        print("🧹 [SISTEMA] RAM residual purgada y devuelta al servidor.")
-    except Exception:
-        pass
 
 import multiprocessing, queue as _queue
 
@@ -2104,6 +2121,11 @@ while True:
                     reportar('apagado', 0, f"🛑 [SLOT {SLOT}] Apagando por orden del panel...")
                     finalizar({'estado': 'completado'})
                     sys.exit(0)
+
+                if SOLO_EXTENSION and comando != "outpainting":
+                    finalizar({"estado":"error", "mensaje_error":"Este servidor GPU es exclusivo para Extender con IA. Para los demás trabajos, encendé un servidor CPU."})
+                    reportar("escuchando", 100, "GPU lista para extender imágenes.")
+                    continue
 
                 if not url_imagen:
                     finalizar({'estado': 'error'})

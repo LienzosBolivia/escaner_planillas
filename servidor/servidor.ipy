@@ -48,7 +48,9 @@ def adquirir(actual):
     actual = actual or {}
     if actual.get("sesion_activa"):
         raise SystemExit("Slot ocupado. Compruebe la sesión en Kaggle.")
-    return {**actual, "sesion_activa": SESION_ID, "interrumpir":False}
+    return {**actual, "sesion_activa": SESION_ID, "interrumpir":False,
+            "tipo_servidor": globals().get("TIPO_SERVIDOR", "cpu"), "estado":"iniciando",
+            "actualizado": int(time.time() * 1000)}
 slot_ref.transaction(adquirir)
 
 class SesionReemplazada(SystemExit):
@@ -1072,6 +1074,68 @@ def _expansion_matematica_pura(img_bgr, pad_top, pad_bottom, pad_left, pad_right
         canvas_final[sl] = np.clip(franja_inf * mask_inf + zona * (1.0 - mask_inf) + 0.5, 0, 255).astype(np.uint8)
 
     return canvas_final
+
+_pipeline_extension = None
+
+def generar_extension(base, mascara):
+    global _pipeline_extension
+    if not torch.cuda.is_available():
+        raise RuntimeError("Para extender con IA, encendé un slot con GPU.")
+    if _pipeline_extension is None:
+        try:
+            from diffusers import StableDiffusionInpaintPipeline
+        except ImportError:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "-q",
+                                   "diffusers>=0.32,<0.37", "transformers>=4.44,<5", "accelerate"])
+            from diffusers import StableDiffusionInpaintPipeline
+        _pipeline_extension = StableDiffusionInpaintPipeline.from_pretrained(
+            "stable-diffusion-v1-5/stable-diffusion-inpainting", torch_dtype=torch.float16
+        )
+        _pipeline_extension.enable_model_cpu_offload()
+    ancho, alto = base.size
+    escala = min(1, 768 / max(ancho, alto))
+    tamano = tuple(max(64, round(lado * escala / 8) * 8) for lado in base.size)
+    with torch.inference_mode():
+        resultado = _pipeline_extension(
+            prompt="Continue the photograph naturally into the empty border. Match the visible person, clothing, pose, lighting, and background. Realistic anatomy.",
+            negative_prompt="extra people, extra limbs, duplicate body, distorted anatomy, lettering",
+            image=base.resize(tamano, Image.Resampling.LANCZOS),
+            mask_image=mascara.resize(tamano, Image.Resampling.NEAREST),
+            width=tamano[0], height=tamano[1], num_inference_steps=25, guidance_scale=6.0,
+        )
+    if resultado.nsfw_content_detected and resultado.nsfw_content_detected[0]:
+        raise RuntimeError("El modelo no entregó una extensión para esta imagen.")
+    return resultado.images[0].resize(base.size, Image.Resampling.LANCZOS)
+
+def extender_original(ruta, salida, x, y, ancho, alto):
+    from PIL import ImageOps
+    with Image.open(ruta) as origen:
+        original = ImageOps.exif_transpose(origen)
+        if original.mode not in ("RGB", "RGBA"):
+            original = original.convert("RGB")
+        perfil = original.info.get("icc_profile")
+        dpi = original.info.get("dpi")
+    izquierda, arriba = -x, -y
+    derecha, abajo = izquierda + original.width, arriba + original.height
+    if izquierda < 0 or arriba < 0 or derecha > ancho or abajo > alto:
+        raise ValueError("En Recorte Manual, incluí toda la foto y extendé el marco fuera de sus bordes.")
+    if (ancho, alto) == original.size:
+        raise ValueError("Extendé el marco de recorte fuera de la foto para crear espacio nuevo.")
+    if ancho * alto > 32_000_000 or max(ancho, alto) > 12000:
+        raise ValueError("El lienzo supera el tamaño admitido para extender con IA.")
+    relleno = original.convert("RGB").resize((1, 1), Image.Resampling.BOX).getpixel((0, 0))
+    base = Image.new("RGB", (ancho, alto), relleno)
+    base.paste(original.convert("RGB"), (izquierda, arriba))
+    mascara = Image.new("L", base.size, 255)
+    mascara.paste(0, (izquierda, arriba, derecha, abajo))
+    generado = generar_extension(base, mascara).convert(original.mode)
+    generado.paste(original, (izquierda, arriba))
+    opciones = {k: v for k, v in {"icc_profile": perfil, "dpi": dpi}.items() if v}
+    generado.save(salida, format="PNG", **opciones)
+    with Image.open(salida) as final:
+        if final.crop((izquierda, arriba, derecha, abajo)).tobytes() != original.tobytes():
+            raise RuntimeError("La verificación de los píxeles originales falló.")
+    return salida
 
 def ejecutar_recorte_manual_expandible(ruta_input, x, y, ancho_cuadro, alto_cuadro, usar_ia_relleno=False):
     if not ruta_input: return None
@@ -2131,11 +2195,11 @@ while True:
                 # "probar_fondo" recibe el PNG YA recortado (con transparencia real);
                 # si lo guardáramos como .jpg perderíamos el canal alpha. El resto
                 # de comandos siguen bajando como .jpg (foto normal de cámara/galería).
-                extension_entrada = "png" if comando == "probar_fondo" else "jpg"
+                extension_entrada = "png" if comando in ("probar_fondo", "outpainting") else "jpg"
                 ruta_input = f"/kaggle/working/input_{tarea_id}.{extension_entrada}"
                 reportar('procesando', 10, f"⬇️ [SLOT {SLOT}] Descargando imagen de la tarea...", tarea_actual=tarea_id)
                 if not descargar_con_reintentos(url_imagen, ruta_input, file_id=id_imagen):
-                    finalizar({'estado': 'error'})
+                    finalizar({'estado': 'error', 'mensaje_error':'El servidor no pudo descargar la imagen de entrada.'})
                     reportar('escuchando', 100, f"⚠️ [SLOT {SLOT}] Falló la descarga de la imagen tras varios intentos. Escuchando de nuevo...")
                     continue
 
@@ -2171,7 +2235,11 @@ while True:
 
                 # ENRUTADOR SIMPLIFICADO (con reporte de progreso real por fase)
                 ruta_resultado = None
-                if comando == "solo_encuadre":
+                if comando == "outpainting":
+                    reportar('procesando', 30, "Generando solo la extensión con IA…", tarea_actual=tarea_id)
+                    ruta_resultado = extender_original(ruta_input, f"/kaggle/working/extension_{tarea_id}.png",
+                                                       crop_x, crop_y, crop_w, crop_h)
+                elif comando == "solo_encuadre":
                     reportar('procesando', fases[0][1], f"🎯 [SLOT {SLOT}] {fases[0][0]}...", tarea_actual=tarea_id)
                     ruta_resultado = ejecutar_fase_0_encuadre(ruta_input)
 
@@ -2284,7 +2352,9 @@ while True:
                     continue
 
                 ruta_sin_malla, ruta_con_malla = None, None
-                if ruta_resultado and os.path.exists(ruta_resultado):
+                if comando == "outpainting":
+                    ruta_sin_malla, malla_elegida = ruta_resultado, "0"
+                elif ruta_resultado and os.path.exists(ruta_resultado):
                     # El retoque de piel ya se aplicó en RAM si el render pasó por exportar_composicion (.jpg)
                     retoque_ya_aplicado = (comando in ("proceso_completo", "solo_recortar") and str(ruta_resultado).startswith(f"/kaggle/working/resultado_{tarea_id}") and str(ruta_resultado).lower().endswith(".jpg"))
                     fuerza_fase5 = 0.0 if retoque_ya_aplicado else fuerza_naranja
@@ -2315,7 +2385,7 @@ while True:
                         # Único paso con pérdida: PNG intermedio (RGB, sin transparencia)
                         # -> JPEG calidad 100, sin submuestreo de croma, conservando
                         # DPI / perfil ICC / EXIF de la foto original.
-                        if ruta_archivo.lower().endswith(".png"):
+                        if comando != "outpainting" and ruta_archivo.lower().endswith(".png"):
                             try:
                                 with Image.open(ruta_archivo) as im_png:
                                     if im_png.mode == "RGB":
@@ -2373,6 +2443,7 @@ while True:
 
                     if str(malla_elegida) != "0" and not (ruta_con_malla and os.path.isfile(ruta_con_malla)):
                         raise RuntimeError("No se generó la malla solicitada.")
+                    con_sesion(slot_ref.get(), {})
                     url_final_sin_malla, id_sin_malla = subir_drive(ruta_sin_malla)
                     url_final_con_malla, id_con_malla = "", ""
                 

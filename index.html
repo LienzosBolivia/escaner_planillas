@@ -155,7 +155,8 @@
                 <div class="mb-4 bg-gray-700 p-3 rounded border border-blue-500">
                     <label class="block text-sm font-bold text-blue-300 mb-2">☁️ Método de Subida (imágenes al servidor):</label>
                     <select id="metodoSubida-__SLOT__" class="w-full p-2 bg-gray-600 rounded font-semibold text-white">
-                        <option value="drive">📂 Google Drive (Actual - Seguro)</option>
+                        <option value="imgbb">ImgBB · subida rápida (enlace externo)</option>
+                        <option value="drive" selected>📂 Google Drive (Actual - Seguro)</option>
                     </select>
                     <p class="text-[11px] text-gray-400 mt-1">Si cargas una imagen del historial, se reutiliza su enlace existente y no se sube de nuevo.</p>
                 </div>
@@ -298,6 +299,7 @@
 
                     <option value="solo_encuadre">🎯 Solo Encuadre Automático</option>
 
+                    <option value="outpainting">🪄 Extender con IA · GPU · PNG sin cambios en el original</option>
                     <option value="recorte_manual" selected>📐 Recorte Manual Expansivo</option>
 
                     <option value="solo_mejorar">✨ Solo Restaurar Rostros</option>
@@ -473,6 +475,11 @@
 
                         <div class="flex justify-between gap-2">
 
+                            <label class="text-xs">Procesador al encender
+                                <select id="tipoServidor-__SLOT__" class="bg-gray-700 rounded p-1">
+                                    <option value="cpu">CPU</option><option value="gpu">GPU · expansión con IA</option>
+                                </select>
+                            </label>
                             <button onclick="forzarDesbloqueo('__SLOT__')" class="w-full bg-red-950 hover:bg-red-900 text-[10px] text-white py-2 rounded font-bold shadow transition border border-red-700">🔓 Forzar Desbloqueo</button>
 
                             <button onclick="reencolarTareaAtascada('__SLOT__')" class="w-full bg-orange-900 hover:bg-orange-800 text-[10px] text-white py-2 rounded font-bold shadow transition border border-orange-700">🔄 Reencolar Atascada</button>
@@ -1432,147 +1439,7 @@
 
 
 
-        // Confirmación en DOS pasos para encender un servidor duplicado.
-
-        // A propósito NO usa confirm() nativo: en celular, el botón "Aceptar"
-
-        // del confirm nativo a veces queda debajo del dedo justo después de
-
-        // tocar "Iniciar Servidor", y un toque accidental lo confirma solo.
-
-        // Acá el botón cambia de texto/color y hay que tocarlo DE NUEVO
-
-        // dentro de 6 segundos, si no se cancela solo.
-
-        function confirmarEncenderDuplicado(slot, segundos, estadoActual) {
-
-            return new Promise((resolve) => {
-
-                const btnOriginal = el("btnPrender", slot);
-
-                const textoOriginal = btnOriginal.innerText;
-
-                const claseOriginal = btnOriginal.className;
-
-
-
-                // Clonamos el botón: esto QUITA el listener original de
-
-                // "click" (el que llama a prenderServidor normal), así el
-
-                // próximo toque SOLO puede disparar la confirmación, nunca
-
-                // los dos a la vez.
-
-                const btnConfirmacion = btnOriginal.cloneNode(true);
-
-                btnConfirmacion.innerText = `⚠️ Ya hay uno activo (hace ${segundos}s). Tocá de nuevo para confirmar`;
-
-                btnConfirmacion.className = claseOriginal.replace('bg-green-900', 'bg-orange-600').replace('hover:bg-green-800', 'hover:bg-orange-500');
-
-                btnOriginal.parentNode.replaceChild(btnConfirmacion, btnOriginal);
-
-
-
-                let resuelto = false;
-
-                const restaurarBotonNormal = () => {
-
-                    const btnNuevoNormal = btnConfirmacion.cloneNode(true);
-
-                    btnNuevoNormal.innerText = textoOriginal;
-
-                    btnNuevoNormal.className = claseOriginal;
-
-                    btnConfirmacion.parentNode.replaceChild(btnNuevoNormal, btnConfirmacion);
-
-                    btnNuevoNormal.addEventListener("click", () => prenderServidor(slot));
-
-                };
-
-
-
-                btnConfirmacion.addEventListener("click", () => {
-
-                    if (resuelto) return;
-
-                    resuelto = true;
-
-                    clearTimeout(temporizador);
-
-                    restaurarBotonNormal();
-
-                    resolve(true);
-
-                }, { once: true });
-
-
-
-                const temporizador = setTimeout(() => {
-
-                    if (resuelto) return;
-
-                    resuelto = true;
-
-                    restaurarBotonNormal();
-
-                    resolve(false);
-
-                }, 6000);
-
-            });
-
-        }
-
-
-
-        window.prenderServidor = async function(slot, forzar = false) {
-
-            const refServidor = ref(db, `servidores/slot_${slot}`);
-
-
-
-            // Guardia anti-duplicados: si ya hay una señal reciente y viva,
-
-            // confirmamos antes de lanzar OTRO notebook en Kaggle.
-
-            if (!forzar) {
-
-                try {
-
-                    const snap = await get(refServidor);
-
-                    if (snap.exists()) {
-
-                        const datos = snap.val();
-
-                        if (datos.sesion_activa) { alert("El slot está ocupado. Verificá la sesión en Kaggle."); return; }
-                        const haceMs = datos.actualizado ? (Date.now() - datos.actualizado) : Infinity;
-
-                        const activo = haceMs < UMBRAL_INACTIVIDAD_MS && ['escuchando', 'procesando', 'iniciando'].includes(datos.estado);
-
-                        if (activo) {
-
-                            const segundos = Math.round(haceMs / 1000);
-
-                            const confirmado = await confirmarEncenderDuplicado(slot, segundos, datos.estado);
-
-                            if (!confirmado) return;
-
-                        }
-
-                    }
-
-                } catch (err) {
-
-                    // si falla la lectura previa, no bloqueamos el encendido
-
-                }
-
-            }
-
-
-
+        window.prenderServidor = async function(slot) {
             const btnArrancar = el("btnPrender", slot);
 
             btnArrancar.disabled = true;
@@ -1597,7 +1464,7 @@
 
             porcentajeCarga.innerText = "2%";
 
-            textoCarga.innerText = "🚀 Enviando orden a Kaggle...";
+            textoCarga.innerText = "Comprobando si el servidor ya está encendido…";
 
             textoCarga.className = "text-xs text-blue-400 font-bold animate-pulse";
 
@@ -1628,9 +1495,18 @@
 
                 // notebook nuevo todavía está instalando cosas.
 
-                const respuesta = await llamarAppsScript(urlWebHook, { action: "start", tipo: "cpu", slot: String(slot) }, 1);
+                const respuesta = await llamarAppsScript(urlWebHook, { action: "start", tipo: el("tipoServidor", slot).value, slot: String(slot) }, 1);
                 if (!respuesta.success) throw new Error(respuesta.error);
-                if (textoCarga.innerText.includes("Enviando")) textoCarga.innerText = "Kaggle aceptó. Esperando el primer aviso del notebook…";
+                if (respuesta.estado === "activo") {
+                    estado[slot].esperandoArranque = null;
+                    textoCarga.innerText = "El servidor ya está encendido o iniciando en Kaggle.";
+                } else if (estado[slot].esperandoArranque) {
+                    textoCarga.innerText = respuesta.recuperado
+                        ? "Se recuperó el bloqueo anterior. Esperando el servidor de Kaggle…"
+                        : "Arranque solicitado. Esperando la primera señal de Kaggle…";
+                }
+                btnArrancar.disabled = false;
+                btnArrancar.classList.remove("opacity-50", "cursor-not-allowed");
 
                 // La escucha del progreso ya está activa desde que se abrió la pestaña
 
@@ -1794,6 +1670,7 @@
                         </div>
 
                         ${htmlImg}
+                        <p class="text-xs text-red-300" data-error-tarea="${tarea.id}"></p>
 
                         ${botonesAccion}
 
@@ -1803,6 +1680,9 @@
 
             });
             contenedor.innerHTML = tarjetas.join("") || '<p class="text-sm text-gray-400 text-center py-8">No hay trabajos en el historial local.</p>';
+            contenedor.querySelectorAll("[data-error-tarea]").forEach(elemento => {
+                elemento.textContent = estado[slot].historialTareas.find(t => t.id === elemento.dataset.errorTarea)?.mensajeError || "";
+            });
             cargarVistasPrivadas(contenedor, slot);
             actualizarTotalHistorialLocal();
 
@@ -1831,6 +1711,7 @@
                     if (!datos) return;
                     if (datos.estado === "completado" || datos.estado === "error") {
                         actual.estado = datos.estado;
+                        actual.mensajeError = datos.mensaje_error || "";
                         if (datos.estado === "completado") {
                             actual.urlResultado = datos.url_resultado;
                             actual.driveId = datos.drive_id;
@@ -2889,13 +2770,21 @@
 
 
                     const subir = (b, nombre) => subirADrive(b, slot, nombre);
+                    const usarImgBB = comando !== "outpainting" && el("metodoSubida", slot).value === "imgbb";
                     let dataOrig = { url: "", fileId: "" };
-                    if (!estado[slot].archivoModificado && estado[slot].imagenCargadaUrl) {
+                    if (!estado[slot].archivoModificado && estado[slot].imagenCargadaUrl && (comando !== "outpainting" || estado[slot].imagenCargadaId)) {
                         txtEstado.innerText = "♻️ Reutilizando enlace de imagen ya subida...";
                         dataOrig = { url: estado[slot].imagenCargadaUrl, fileId: estado[slot].imagenCargadaId || "" };
                     } else {
-                        txtEstado.innerText = "☁️ Subiendo imagen a Drive...";
-                        dataOrig = await subir(archivo, archivo.name);
+                        txtEstado.innerText = usarImgBB ? "Subiendo foto a ImgBB…" : "Subiendo foto a Drive…";
+                        if (usarImgBB) {
+                            dataOrig = await llamarAppsScript(endpoint, {
+                                action:"upload_imgbb", base64:await leerComoBase64(archivo), mimetype:archivo.type || "image/jpeg"
+                            }, 1);
+                            if (!dataOrig.success) throw new Error(dataOrig.error);
+                        } else {
+                            dataOrig = await subir(archivo, archivo.name);
+                        }
                     }
 
                     let urlOriginal = dataOrig.url;
@@ -2970,7 +2859,7 @@
 
 
 
-                    if ((comando === "recorte_manual" || comando === "proceso_completo") && !estado[slot].datosRecorte) {
+                    if (["outpainting","recorte_manual","proceso_completo"].includes(comando) && !estado[slot].datosRecorte) {
 
                         throw new Error("Debes usar la herramienta '✂️ Recorte Manual' y darle a '✅ Aplicar Recorte' antes de enviar.");
 
@@ -2982,7 +2871,7 @@
 
                     let urlFondoCustom = "";
                     let idFondoCustom = "";
-                    if (el("usarFondoCustom", slot).checked) {
+                    if (comando !== "outpainting" && el("usarFondoCustom", slot).checked) {
                         txtEstado.innerText = "🎨 Subiendo fondo personalizado del estudio...";
                         const blobFondo = await obtenerBlobFondoCustom();
                         const dataFondo = await subirADrive(blobFondo, slot, "fondo_custom.jpg");
@@ -3012,7 +2901,7 @@
                         retoque_sat: parseInt(el("sliderSat", slot).value),
                         retoque_lum: parseInt(el("sliderLum", slot).value),
 
-                        fondo_id: el("usarFondoCustom", slot).checked ? "custom" : el("fondoIA", slot).value,
+                        fondo_id: comando === "outpainting" ? "0" : el("usarFondoCustom", slot).checked ? "custom" : el("fondoIA", slot).value,
                         url_fondo_custom: urlFondoCustom,
                         id_fondo_custom: idFondoCustom,
 

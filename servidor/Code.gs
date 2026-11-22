@@ -36,14 +36,44 @@ function doPost(e) {
       try {
         const key = "arranque_" + d.slot;
         const cache = CacheService.getScriptCache();
-        const respuesta = UrlFetchApp.fetch("https://botartes-default-rtdb.firebaseio.com/servidores/slot_" + d.slot + "/sesion_activa.json?auth=" + encodeURIComponent(d.idToken), {muteHttpExceptions:true});
-        if (respuesta.getResponseCode() !== 200) throw new Error("Firebase denegó la consulta del slot. Verificá el acceso del navegador y las reglas.");
-        if (JSON.parse(respuesta.getContentText())) throw new Error("El slot ya tiene una sesión.");
-        if (cache.get(key)) throw new Error("Ya se envió un arranque para ese slot en los últimos dos minutos.");
-        const ack = triggerKaggleImageServer(d.tipo, String(d.slot));
+        if (cache.get(key)) return json({success:true, estado:"iniciando"});
+        const urlSlot = "https://botartes-default-rtdb.firebaseio.com/servidores/slot_" + d.slot + ".json?auth=" + encodeURIComponent(d.idToken);
+        const respuesta = UrlFetchApp.fetch(urlSlot, {headers:{"X-Firebase-ETag":"true"}, muteHttpExceptions:true});
+        if (respuesta.getResponseCode() !== 200) throw new Error("Firebase denegó la consulta del servidor.");
+        const actual = JSON.parse(respuesta.getContentText()) || {};
+        if (actual.sesion_activa) {
+          if (Date.now() - Number(actual.actualizado || 0) < 45000) return json({success:true, estado:"activo"});
+          const tipos = ["cpu","gpu"].includes(actual.tipo_servidor) ? [actual.tipo_servidor] : ["cpu","gpu"];
+          const estados = tipos.map(tipo => estadoKaggle(tipo, d.slot));
+          if (estados.includes("activo")) return json({success:true, estado:"activo"});
+          if (estados.includes("desconocido") || !estados.includes("terminado")) {
+            throw new Error("No se pudo confirmar que la sesión anterior haya terminado. Se conservó el bloqueo.");
+          }
+          const headers = respuesta.getAllHeaders();
+          const etag = headers.ETag || headers.Etag || headers.etag;
+          if (!etag) throw new Error("Firebase no permitió comprobar si el bloqueo cambió.");
+          const liberar = UrlFetchApp.fetch(urlSlot, {method:"put", contentType:"application/json", headers:{"if-match":etag},
+            payload:JSON.stringify({...actual,sesion_activa:"",estado:"apagado",tarea_actual:""}), muteHttpExceptions:true});
+          if (liberar.getResponseCode() !== 200) throw new Error("El estado cambió durante la comprobación. Volvé a intentar.");
+        }
         cache.put(key,"1",120);
-        return json(ack);
+        const ack = triggerKaggleImageServer(d.tipo, String(d.slot));
+        return json({...ack, estado:"iniciando", recuperado:Boolean(actual.sesion_activa)});
       } finally { lock.releaseLock(); }
+    }
+    if (d.action === "upload_imgbb") {
+      if (!/^image\//.test(d.mimetype) || typeof d.base64 !== "string" || !d.base64 || d.base64.length > 44000000) {
+        throw new Error("Imagen inválida o demasiado grande para ImgBB.");
+      }
+      const res = UrlFetchApp.fetch("https://api.imgbb.com/1/upload?key="+encodeURIComponent(prop("IMGBB_API_KEY")), {
+        method:"post", payload:{image:d.base64}, muteHttpExceptions:true
+      });
+      const resultadoImg = JSON.parse(res.getContentText());
+      const url = resultadoImg.data && resultadoImg.data.url;
+      if (res.getResponseCode() !== 200 || !resultadoImg.success || !/^https:\/\/i\.ibb\.co\//.test(url || "")) {
+        throw new Error("ImgBB rechazó la foto (HTTP "+res.getResponseCode()+").");
+      }
+      return json({success:true, url:url, fileId:""});
     }
     const folder = DriveApp.getFolderById(prop("FOLDER_ID"));
     if (d.action === "download" || d.action === "delete") {
@@ -81,16 +111,36 @@ function doPost(e) {
     } finally { lock.releaseLock(); }
   } catch(err) { return json({success:false,error:String(err.message || err)}); }
 }
+function credencialesKaggle() {
+  return "Basic " + Utilities.base64Encode(prop("KAGGLE_USER") + ":" + prop("KAGGLE_KEY"));
+}
+function slugKaggle(tipo, slot) {
+  return "bot-artes-" + tipo + "-slot-" + slot;
+}
+function estadoKaggle(tipo, slot) {
+  const url = "https://www.kaggle.com/api/v1/kernels/status?userName=" + encodeURIComponent(prop("KAGGLE_USER").toLowerCase().trim()) +
+    "&kernelSlug=" + encodeURIComponent(slugKaggle(tipo, slot));
+  const res = UrlFetchApp.fetch(url, {headers:{Authorization:credencialesKaggle()}, muteHttpExceptions:true});
+  if (res.getResponseCode() === 404) return "ausente";
+  if (res.getResponseCode() !== 200) return "desconocido";
+  let estado;
+  try { estado = String(JSON.parse(res.getContentText()).status || "").toLowerCase(); }
+  catch { return "desconocido"; }
+  if (["running","queued","pending"].includes(estado)) return "activo";
+  if (["complete","completed","error","failed","cancelled","canceled"].includes(estado)) return "terminado";
+  return "desconocido";
+}
+
 function triggerKaggleImageServer(tipo, slot) {
   var url = "https://www.kaggle.com/api/v1/kernels/push";
-  var authHeader = "Basic " + Utilities.base64Encode(prop("KAGGLE_USER") + ":" + prop("KAGGLE_KEY"));
+  var authHeader = credencialesKaggle();
   var enableGpu = (tipo === "gpu");
   
   var cleanUser = prop("KAGGLE_USER").toLowerCase().replace(/\s+/g, '');
 
   // Cada slot es un kernel de Kaggle totalmente distinto e independiente,
   // así los 5 pueden estar corriendo al mismo tiempo sin pisarse.
-  var slugSuffix = (enableGpu ? "bot-artes-gpu-slot-" : "bot-artes-cpu-slot-") + slot;
+  var slugSuffix = slugKaggle(tipo, slot);
   var dynamicSlug = cleanUser + "/" + slugSuffix;
   
   var payload = {
@@ -107,7 +157,7 @@ function triggerKaggleImageServer(tipo, slot) {
       cleanUser + "/fondos-estudio",
       cleanUser + "/mallas-misiones"
     ],
-    "text": getNotebookSourceFromDrive(slot) 
+    "text": getNotebookSourceFromDrive(slot, tipo) 
   };
 
   var headers = {
@@ -132,7 +182,7 @@ function triggerKaggleImageServer(tipo, slot) {
   } catch (error) { throw error; }
 }
 
-function getNotebookSourceFromDrive(slot) {
+function getNotebookSourceFromDrive(slot, tipo) {
   var codigoBruto = DriveApp.getFileById(prop("CODIGO_DRIVE_ID")).getBlob().getDataAsString();
   var codigoLimpio = codigoBruto.replace(/^\uFEFF/, '');
 
@@ -149,7 +199,7 @@ function getNotebookSourceFromDrive(slot) {
   }
   
   var reloj = "# Señal enviada el: " + new Date().toISOString() + " | Slot: " + slot + "\n";
-  var codigoFinal = reloj + "FIREBASE_WEB_API_KEY = " + JSON.stringify(prop("FIREBASE_WEB_API_KEY")) + "\nAPPS_URL = " + JSON.stringify(ScriptApp.getService().getUrl()) + "\n" + codigoLimpio;
+  var codigoFinal = reloj + "FIREBASE_WEB_API_KEY = " + JSON.stringify(prop("FIREBASE_WEB_API_KEY")) + "\nAPPS_URL = " + JSON.stringify(PropertiesService.getScriptProperties().getProperty("WEB_APP_URL") || ScriptApp.getService().getUrl()) + "\nTIPO_SERVIDOR = " + JSON.stringify(tipo) + "\n" + codigoLimpio;
   
   var celda_archivo = "%%writefile servidor.ipy\n" + codigoFinal;
   var celda_ejecucion = "!ipython servidor.ipy";

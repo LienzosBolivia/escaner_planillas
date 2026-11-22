@@ -151,12 +151,10 @@ function triggerKaggleImageServer(tipo, slot) {
     "isPrivate": true,
     "enableGpu": enableGpu,
     "enableInternet": true,
-    "datasetDataSources": [
-      "christopherrrobin/firebase-bot-credenciales", 
-      cleanUser + "/arsenal-modelos-ia-edicion",
-      cleanUser + "/fondos-estudio",
-      cleanUser + "/mallas-misiones"
-    ],
+    "datasetDataSources": enableGpu
+      ? ["christopherrrobin/firebase-bot-credenciales"]
+      : ["christopherrrobin/firebase-bot-credenciales", cleanUser + "/arsenal-modelos-ia-edicion",
+         cleanUser + "/fondos-estudio", cleanUser + "/mallas-misiones"],
     "text": getNotebookSourceFromDrive(slot, tipo) 
   };
 
